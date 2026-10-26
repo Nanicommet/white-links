@@ -98,7 +98,8 @@ async function main() {
       method: "POST",
       body: {
         displayName: `E2E Member ${i + 1}`,
-        phone: `+216246${String(100000 + RUN % 100000).slice(0, 4)}${String(i).padStart(2, "0")}`.slice(0, 12),
+        // 12-char phone: +216246 + 3 digits from RUN + 2-digit index → unique per run & member
+        phone: `+216246${String(RUN % 1000).padStart(3, "0")}${String(i).padStart(2, "0")}`,
         email: m.email,
         password: TEST_PASSWORD,
         category: m.category,
