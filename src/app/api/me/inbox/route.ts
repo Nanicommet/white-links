@@ -16,6 +16,7 @@ export async function GET() {
     });
     if (!round) return Response.json({ threads: null, round: null });
     const revealed = round.status === "revealed" || round.status === "archived";
+    const roundId = round.id;
 
     const myOut = await db.assignment.findFirst({
       where: { roundId: round.id, giverId: user.id, status: "ACTIVE" },
@@ -30,7 +31,7 @@ export async function GET() {
       if (!otherId) return [];
       const msgs = await db.message.findMany({
         where: {
-          roundId: round.id,
+          roundId,
           OR: [
             { senderId: user.id, recipientId: otherId },
             { senderId: otherId, recipientId: user.id },
@@ -40,16 +41,19 @@ export async function GET() {
         orderBy: { createdAt: "asc" },
         take: 200,
       });
-      return msgs.map((m) => ({
-        id: m.id,
-        mine: m.senderId === user.id,
-        body: m.body,
-        createdAt: m.createdAt,
-        readAt: m.readAt,
-        modStatus: m.mine ? m.modStatus : "ALLOWED", // recipients never see moderation internals
-        modExplanation: m.mine ? m.modExplanation : null,
-        deliveryStatus: m.mine ? m.deliveryStatus : null,
-      }));
+      return msgs.map((m) => {
+        const mine = m.senderId === user.id;
+        return {
+          id: m.id,
+          mine,
+          body: m.body,
+          createdAt: m.createdAt,
+          readAt: m.readAt,
+          modStatus: mine ? m.modStatus : "ALLOWED", // recipients never see moderation internals
+          modExplanation: mine ? m.modExplanation : null,
+          deliveryStatus: mine ? m.deliveryStatus : null,
+        };
+      });
     }
 
     const friendThread = myOut ? await loadThread(myOut.recipientId) : [];
@@ -58,7 +62,7 @@ export async function GET() {
     // Mark incoming allowed messages as read
     await db.message.updateMany({
       where: {
-        roundId: round.id,
+        roundId,
         recipientId: user.id,
         senderId: { not: user.id },
         modStatus: "ALLOWED",
@@ -68,7 +72,7 @@ export async function GET() {
     });
 
     return Response.json({
-      round: { id: round.id, name: round.name, status: round.status, isDemo: round.isDemo, messageMaxLength: round.messageMaxLength },
+      round: { id: round.id, name: round.name, status: round.status, messageMaxLength: round.messageMaxLength },
       revealed,
       threads: {
         friend: { exists: !!myOut, messages: friendThread },

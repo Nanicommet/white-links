@@ -117,14 +117,14 @@ export function Countdown({ targetIso, prefix, dark = false, compact = false }: 
           {!compact && box(cd.seconds, t("s"))}
         </div>
       )}
-      <span className="sr-only">{formatDate(targetIso, lang)}</span>
+      <span className="sr-only">{targetIso ? formatDate(targetIso, lang) : ""}</span>
     </div>
   );
 }
 
 // ── Round status pill ──
 
-export function StatusPill({ status, demo }: { status: string; demo?: boolean }) {
+export function StatusPill({ status }: { status: string }) {
   const { t } = useI18n();
   const key: Record<string, string> = {
     draft: "status.setup",
@@ -154,11 +154,6 @@ export function StatusPill({ status, demo }: { status: string; demo?: boolean })
         )}
         {t((key[status] ?? "status.setup") as never)}
       </span>
-      {demo && (
-        <span className="inline-flex items-center rounded-full border border-dashed border-black/40 px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest text-black/60">
-          Démo
-        </span>
-      )}
     </span>
   );
 }

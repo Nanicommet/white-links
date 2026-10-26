@@ -71,7 +71,6 @@ export async function GET() {
             guessingDeadline: round.guessingDeadline,
             revealAt: round.revealAt,
             matchingMode: round.matchingMode,
-            isDemo: round.isDemo,
             nextRoundRegistrationEnabled: round.nextRoundRegistrationEnabled,
             counts: {
               registrations: round._count.registrations,

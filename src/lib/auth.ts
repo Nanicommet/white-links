@@ -82,7 +82,6 @@ export type SessionUser = {
   phone: string;
   role: string;
   phoneVerified: boolean;
-  isDemo: boolean;
   restrictedUntil: Date | null;
 };
 
@@ -101,7 +100,6 @@ export async function getSessionUser(): Promise<SessionUser | null> {
       phone: true,
       role: true,
       phoneVerified: true,
-      isDemo: true,
       restrictedUntil: true,
     },
   });

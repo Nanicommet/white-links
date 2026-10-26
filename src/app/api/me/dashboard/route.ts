@@ -83,7 +83,6 @@ export async function GET() {
           guessingStart: round.guessingStart,
           guessingDeadline: round.guessingDeadline,
           revealAt: round.revealAt,
-          isDemo: round.isDemo,
           messageMaxLength: round.messageMaxLength,
         },
         friend: assignment
@@ -125,7 +124,6 @@ export async function GET() {
       });
       return Response.json({
         phase: "REVEALED",
-        round: { id: round.id, name: round.name, status: round.status, isDemo: round.isDemo, gameEnd: round.gameEnd },
         friend: friend ? { displayName: friend.displayName } : null,
         admirer: admirer ? { displayName: admirer.displayName } : null,
         guess: myGuess ? { guessedId: myGuess.guessedId, correct } : null,
@@ -145,7 +143,6 @@ export async function GET() {
         status: round.status,
         registrationEnd: round.registrationEnd,
         matchingMode: round.matchingMode,
-        isDemo: round.isDemo,
       },
       registration: {
         category: registration.category,

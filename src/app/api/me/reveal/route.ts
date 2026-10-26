@@ -66,7 +66,7 @@ export async function GET() {
 
     return Response.json({
       revealed: true,
-      round: { id: round.id, name: round.name, status: round.status, isDemo: round.isDemo },
+      round: { id: round.id, name: round.name, status: round.status },
       admirer: { displayName: nameOf(admirerId) },
       friend: { displayName: nameOf(myOut?.recipientId) },
       guess: myGuess

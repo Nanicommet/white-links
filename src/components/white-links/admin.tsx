@@ -22,7 +22,7 @@ import { Countdown, Spinner, StatusPill, formatDate } from "./shared";
 
 interface Overview {
   round: {
-    id: string; name: string; status: string; matchingMode: string; isDemo: boolean;
+    id: string; name: string; status: string; matchingMode: string;
     registrationStart: string; registrationEnd: string;
     gameStart: string | null; gameEnd: string | null; guessingStart: string | null;
     guessingDeadline: string | null; revealAt: string | null;
@@ -40,7 +40,7 @@ interface Overview {
 }
 
 interface RoundRow {
-  id: string; name: string; status: string; matchingMode: string; isDemo: boolean;
+  id: string; name: string; status: string; matchingMode: string;
   registrationStart: string; registrationEnd: string;
   gameStart: string | null; gameEnd: string | null; guessingStart: string | null;
   guessingDeadline: string | null; revealAt: string | null;
@@ -50,7 +50,7 @@ interface RoundRow {
 interface ParticipantRow {
   id: string; displayName: string; email: string; phone: string; phoneVerified: boolean;
   category: string; interests: string | null; giftPrefs: string | null; status: string;
-  verificationStatus: string; isDemo: boolean; restrictedUntil: string | null; createdAt: string;
+  verificationStatus: string; restrictedUntil: string | null; createdAt: string;
 }
 
 interface PreviewResult {
@@ -147,10 +147,6 @@ function OverviewTab() {
     refetchInterval: 15000,
   });
   const { mutation, err } = useAdminAction();
-  const demoMutation = useMutation({
-    mutationFn: () => api<{ ok: boolean; message: string }>("/api/admin/demo", { method: "POST" }),
-    onSuccess: () => window.location.reload(),
-  });
 
   if (q.isLoading) return <Spinner />;
   const o = q.data!;
@@ -171,7 +167,7 @@ function OverviewTab() {
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex flex-wrap items-center gap-3">
               <h2 className="font-display text-3xl">{o.round.name}</h2>
-              <StatusPill status={o.round.status} demo={o.round.isDemo} />
+              <StatusPill status={o.round.status} />
               <span className="rounded-full bg-neutral-100 px-3 py-1 text-xs font-semibold">
                 {o.round.matchingMode === "CROSS_CATEGORY" ? t("admin.modeCross") : t("admin.modeOpen")}
               </span>
@@ -207,9 +203,7 @@ function OverviewTab() {
         <div className="wl-card p-8 text-center">
           <Hourglass className="mx-auto h-9 w-9 text-black/30" />
           <p className="mt-3 font-display text-2xl">{t("admin.noRound")}</p>
-          <Button onClick={() => demoMutation.mutate()} disabled={demoMutation.isPending} variant="outline" className="mt-4 rounded-full">
-            <Sparkles className="h-4 w-4" /> {t("admin.demoSeed")}
-          </Button>
+          <p className="mx-auto mt-2 max-w-md text-sm text-black/50">{t("admin.createRoundHint")}</p>
         </div>
       )}
 
@@ -284,7 +278,7 @@ function RoundsTab() {
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex flex-wrap items-center gap-3">
               <h3 className="font-display text-2xl">{r.name}</h3>
-              <StatusPill status={r.status} demo={r.isDemo} />
+              <StatusPill status={r.status} />
               <span className="rounded-full bg-neutral-100 px-2.5 py-0.5 text-[11px] font-semibold">
                 {r.matchingMode === "CROSS_CATEGORY" ? "Croisé" : "Libre"}
               </span>
@@ -476,7 +470,7 @@ function ParticipantsTab() {
               {regs.map((r) => (
                 <tr key={r.id} className="hover:bg-neutral-50/60">
                   <td className="px-4 py-3">
-                    <p className="font-semibold">{r.displayName} {r.isDemo && <span className="ms-1 rounded bg-neutral-100 px-1.5 text-[9px] font-bold uppercase text-black/40">démo</span>}</p>
+                    <p className="font-semibold">{r.displayName}</p>
                     <p className="text-xs text-black/45">{r.email}</p>
                     {r.interests && <p className="mt-0.5 max-w-64 truncate text-[11px] text-black/40">{r.interests}</p>}
                   </td>
@@ -949,7 +943,7 @@ function IntegrationsTab() {
 // ── Audit ──
 
 function AuditTab() {
-  const { lang } = useI18n();
+  const { t, lang } = useI18n();
   const q = useQuery({
     queryKey: ["admin-audit"],
     queryFn: () =>

@@ -26,7 +26,6 @@ export async function GET() {
         status: round.status,
         registrationEnd: round.registrationEnd,
         matchingMode: round.matchingMode,
-        isDemo: round.isDemo,
       },
       registration: registration
         ? {

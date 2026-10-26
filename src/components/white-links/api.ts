@@ -50,7 +50,6 @@ export interface PublicRound {
   guessingDeadline: string | null;
   revealAt: string | null;
   matchingMode: string;
-  isDemo: boolean;
   participantCount?: number;
 }
 
@@ -68,7 +67,6 @@ export interface Me {
   phone: string;
   role: string;
   phoneVerified: boolean;
-  isDemo: boolean;
   restrictedUntil: string | null;
 }
 
@@ -85,7 +83,6 @@ export interface DashboardData {
     guessingDeadline?: string | null;
     revealAt?: string | null;
     matchingMode?: string;
-    isDemo: boolean;
     messageMaxLength?: number;
   };
   registration?: { category: string; verificationStatus: string };
@@ -115,7 +112,7 @@ export interface InboxMessage {
 }
 
 export interface InboxData {
-  round: { id: string; name: string; status: string; isDemo: boolean; messageMaxLength: number } | null;
+  round: { id: string; name: string; status: string; messageMaxLength: number } | null;
   revealed: boolean;
   threads: {
     friend: { exists: boolean; messages: InboxMessage[] };
@@ -128,7 +125,7 @@ export interface GuessData {
   open: boolean;
   reason?: string;
   deadline?: string | null;
-  round?: { id: string; name: string; status: string; isDemo: boolean };
+  round?: { id: string; name: string; status: string };
   participants?: { id: string; displayName: string; isMe: boolean }[];
   myGuess?: { guessedId: string } | null;
 }
@@ -145,7 +142,7 @@ export interface NotificationItem {
 export interface RevealData {
   revealed: boolean;
   reason?: string;
-  round?: { id: string; name: string; status: string; isDemo?: boolean; guessingDeadline?: string | null; revealAt?: string | null };
+  round?: { id: string; name: string; status: string; guessingDeadline?: string | null; revealAt?: string | null };
   admirer?: { displayName: string | null };
   friend?: { displayName: string | null };
   guess?: { guessedId: string; guessedName: string | null; correct: boolean } | null;

@@ -3,14 +3,19 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 // ─────────────────────────────────────────────────────────────
 // WHITE LINKS — Secret-friend game of White Line Club ISSIG
-// NOTE: SQLite does not support Prisma enums; status fields are
-// strings validated in src/lib/* (zod + TS constants).
+// Backed by Supabase Postgres.
+// - DATABASE_URL: Supabase transaction-pooler connection (PgBouncer,
+//   port 6543) used by the app at runtime — add ?pgbouncer=true.
+// - DIRECT_URL: session pooler / direct connection (port 5432) used
+//   by Prisma CLI for migrations.
+// Status fields are strings validated in src/lib/* (zod + TS constants).
 // ─────────────────────────────────────────────────────────────
 
 model User {
@@ -21,7 +26,6 @@ model User {
   phone         String // normalized international format e.g. +21624555123
   role          String   @default("MEMBER") // MEMBER | ADMIN
   phoneVerified Boolean  @default(false)
-  isDemo        Boolean  @default(false)
   restrictedUntil DateTime?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -54,7 +58,6 @@ model Round {
   matchingMode   String   @default("OPEN") // OPEN | CROSS_CATEGORY
   messageMaxLength Int    @default(500)
   missionsEnabled Boolean @default(true)
-  isDemo         Boolean  @default(false)
   nextRoundRegistrationEnabled Boolean @default(false)
   matchingConfig String? // JSON blob (category labels, exclusions…)
   createdAt      DateTime @default(now())

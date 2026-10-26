@@ -43,7 +43,7 @@ export async function GET() {
     return Response.json({
       open: isOpen,
       deadline: round.guessingDeadline,
-      round: { id: round.id, name: round.name, status: round.status, isDemo: round.isDemo },
+      round: { id: round.id, name: round.name, status: round.status },
       participants: participants.map((p) => ({
         id: p.userId,
         displayName: p.user.displayName,

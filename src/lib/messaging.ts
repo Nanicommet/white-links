@@ -223,7 +223,7 @@ export async function handleWhatsAppInbound(fromPhoneRaw: string, text: string, 
   const phone = normalizePhone(fromPhoneRaw);
   if (!phone) return { handled: false };
 
-  const user = await db.user.findUnique({ where: { phone } });
+  const user = await db.user.findFirst({ where: { phone } });
   if (!user) return { handled: false };
 
   const membership = await currentActiveMembership(user.id);

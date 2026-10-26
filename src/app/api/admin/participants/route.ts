@@ -18,7 +18,7 @@ export async function GET(req: Request) {
       where: { roundId: round.id },
       include: {
         user: {
-          select: { id: true, email: true, displayName: true, phone: true, phoneVerified: true, isDemo: true, restrictedUntil: true, createdAt: true },
+          select: { id: true, email: true, displayName: true, phone: true, phoneVerified: true, restrictedUntil: true, createdAt: true },
         },
       },
       orderBy: { createdAt: "asc" },
@@ -43,7 +43,6 @@ export async function GET(req: Request) {
         giftPrefs: r.giftPrefs,
         status: r.status,
         verificationStatus: r.verificationStatus,
-        isDemo: r.user.isDemo,
         restrictedUntil: r.user.restrictedUntil,
         createdAt: r.createdAt,
       })),

@@ -1,3 +1,4 @@
+import { db } from "@/lib/db";
 import { requireAdmin, jsonError } from "@/lib/auth";
 import { audit } from "@/lib/audit";
 import { getSettings } from "@/lib/lifecycle";

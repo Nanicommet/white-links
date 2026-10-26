@@ -39,7 +39,7 @@ export function MessagesPage() {
       setFeedback(null);
       qc.invalidateQueries({ queryKey: ["inbox"] });
       qc.invalidateQueries({ queryKey: ["dashboard"] });
-      if (payload.destination === "admirer") setTab("admirer");
+      if (payload.destination === "admirer") setTabChoice("admirer");
     },
     onError: (e) => {
       if (e instanceof ApiError) {
@@ -111,9 +111,6 @@ export function MessagesPage() {
         <div className="pt-6 pb-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h1 className="font-display text-4xl leading-none">{t("msg.title")}</h1>
-            {data.round?.isDemo && (
-              <span className="rounded-full border border-dashed border-black/40 px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-black/60">Démo</span>
-            )}
           </div>
           <p className="mt-1.5 flex items-center gap-1.5 text-xs text-black/50">
             <ShieldAlert className="h-3.5 w-3.5" /> {t("msg.anonymity")}

@@ -10,7 +10,8 @@ import { VALID_TRANSITIONS, type RoundStatus } from "@/lib/constants";
 export async function getSettings() {
   let s = await db.settings.findUnique({ where: { id: "global" } });
   if (!s) {
-    s = await db.settings.create({ where: { id: "global" }, data: { id: "global" } });
+    // Race-safe creation: another worker may have created it concurrently
+    s = await db.settings.upsert({ where: { id: "global" }, update: {}, create: { id: "global" } });
   }
   return s;
 }

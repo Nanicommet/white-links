@@ -59,7 +59,7 @@ async function main() {
   const email = `sec-test-${Date.now()}@test.wlc`;
   const secPhone = `+216246${String(Date.now()).slice(-5)}`.slice(0, 12); // unique per run
   {
-    // Register a member while demo round is open (or expect graceful NO_OPEN_ROUND)
+    // Register a member while a round is open (or expect graceful NO_OPEN_ROUND)
     const reg = await member.call("/api/registrations", {
       method: "POST",
       body: {
@@ -92,15 +92,35 @@ async function main() {
     assert(ok.status === 200, "admin login works");
     const integ = await admin.call("/api/admin/integrations");
     const wa = (integ.data.integrations as { id: string; status: string }[] | undefined)?.find((i) => i.id === "whatsapp");
-    assert(wa && (wa.status === "NOT_CONFIGURED" || wa.status === "OPERATIONAL"), `WhatsApp status honest (${wa?.status})`);
+    assert(!!wa && (wa.status === "NOT_CONFIGURED" || wa.status === "OPERATIONAL"), `WhatsApp status honest (${wa?.status})`);
   }
 
-  console.log("— Demo round + duplicate registration (acceptance #1) —");
+  console.log("— Open round + duplicate registration (acceptance #1) —");
   {
-    await admin.call("/api/admin/demo", { method: "POST" });
-    const status = await anon.call("/api/rounds/current");
-    const round = status.data.round as { status: string; id: string } | null;
-    assert(round !== null, "public round status exists after demo seed");
+    // Ensure an open round exists: create + open one if none is active
+    let status = await anon.call("/api/rounds/current");
+    let round = status.data.round as { status: string; id: string } | null;
+    if (!round || !(round.status === "registration_open" || round.status === "active" || round.status === "guessing_open")) {
+      const nowMs = Date.now();
+      const created = await admin.call("/api/admin/rounds", {
+        method: "POST",
+        body: {
+          name: `API Test Round ${nowMs}`,
+          registrationStart: new Date(nowMs - 60 * 1000).toISOString(),
+          registrationEnd: new Date(nowMs + 48 * 3600 * 1000).toISOString(),
+          matchingMode: "OPEN",
+        },
+      });
+      if (created.status === 200) {
+        const createdRound = (created.data as { round?: { id?: string } }).round;
+        if (createdRound?.id) {
+          await admin.call(`/api/admin/rounds/${createdRound.id}/action`, { method: "POST", body: { action: "open_registration" } });
+        }
+      }
+      status = await anon.call("/api/rounds/current");
+      round = status.data.round as { status: string; id: string } | null;
+    }
+    assert(round !== null, "public round status available");
 
     // Register a fresh member (fresh cookie jar, unique phone)
     const dupClient = client();

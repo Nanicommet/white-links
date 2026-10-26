@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { api, ApiError, type CurrentStatus } from "./api";
+import { api, ApiError, type CurrentStatus, type Me } from "./api";
 import { useI18n } from "./i18n-context";
 import { Spinner } from "./shared";
 

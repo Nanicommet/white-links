@@ -41,7 +41,7 @@ export function Dashboard({ me }: { me: Me }) {
               {t("dash.welcome")}, <span className="underline decoration-2 underline-offset-4">{me.displayName}</span>
             </h1>
           </div>
-          {d.round && <StatusPill status={d.round.status} demo={d.round.isDemo} />}
+          {d.round && <StatusPill status={d.round.status} />}
         </div>
 
         {d.phase === "NO_ROUND" && (
@@ -259,7 +259,7 @@ function RevealedState({ d }: { d: DashboardData }) {
     <div className="wl-card mt-8 p-8 text-center">
       <Trophy className="mx-auto h-10 w-10" />
       <h2 className="mt-4 font-display text-4xl">{t("status.revealed")}</h2>
-      {d.round && <StatusPill status={d.round.status} demo={d.round.isDemo} />}
+      {d.round && <StatusPill status={d.round.status} />}
       <p className="mx-auto mt-4 max-w-md text-sm leading-relaxed text-black/60">{t("reveal.celebrate")}</p>
       <Button onClick={() => (window.location.hash = "/white-links/reveal")} className="mt-6 rounded-full bg-black px-8 hover:bg-black/85">
         {t("dash.revealCta")} <ArrowRight className="ms-1 h-4 w-4" />

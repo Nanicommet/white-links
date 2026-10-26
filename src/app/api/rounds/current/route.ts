@@ -46,7 +46,6 @@ export async function GET() {
           guessingDeadline: round.guessingDeadline,
           revealAt: round.revealAt,
           matchingMode: round.matchingMode,
-          isDemo: round.isDemo,
           participantCount: round._count.registrations,
         }
       : null,

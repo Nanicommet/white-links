@@ -97,11 +97,6 @@ export function Landing({ me }: { me: Me | null }) {
             <div className="wl-float">
               <EnvelopeArt className="w-full drop-shadow-sm" />
             </div>
-            {round?.isDemo && (
-              <p className="absolute -bottom-2 left-1/2 -translate-x-1/2 rounded-full border border-dashed border-black/40 bg-white px-4 py-1 text-[11px] font-bold uppercase tracking-widest text-black/60">
-                {t("hero.demoNote")}
-              </p>
-            )}
           </motion.div>
         </div>
       </section>
@@ -126,7 +121,7 @@ export function Landing({ me }: { me: Me | null }) {
               <div className="flex flex-col lg:flex-row lg:items-center gap-6 justify-between">
                 <div className="space-y-3">
                   <div className="flex flex-wrap items-center gap-3">
-                    <StatusPill status={round.status} demo={round.isDemo} />
+                    <StatusPill status={round.status} />
                     <span className="text-sm text-black/50 font-medium">
                       {t("status.round")} — {round.name}
                     </span>

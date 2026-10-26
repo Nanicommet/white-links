@@ -1,13 +1,29 @@
 /**
  * WHITE LINKS — Full lifecycle E2E (live server + direct DB verification)
  * Run: bun scripts/e2e-lifecycle.ts
+ * Self-seeding: creates its own round and members (no demo data involved).
  * Exercises: registration freeze → matching → messaging/moderation →
- * guessing → reveal → archive. Leaves a fresh demo round for the user.
+ * guessing → reveal → archive.
  */
 import { db } from "../src/lib/db";
 import { verifyMatching } from "../src/lib/matching";
 
 const BASE = process.env.BASE_URL ?? "http://localhost:3000";
+const RUN = Date.now();
+const TEST_PASSWORD = "E2eTest2026!";
+// 10 members: 5 category A, 5 category B
+const MEMBERS = [
+  { email: `p1-${RUN}@e2e.test`, category: "A" },
+  { email: `p2-${RUN}@e2e.test`, category: "A" },
+  { email: `p3-${RUN}@e2e.test`, category: "A" },
+  { email: `p4-${RUN}@e2e.test`, category: "A" },
+  { email: `p5-${RUN}@e2e.test`, category: "A" },
+  { email: `p6-${RUN}@e2e.test`, category: "B" },
+  { email: `p7-${RUN}@e2e.test`, category: "B" },
+  { email: `p8-${RUN}@e2e.test`, category: "B" },
+  { email: `p9-${RUN}@e2e.test`, category: "B" },
+  { email: `p10-${RUN}@e2e.test`, category: "B" },
+] as const;
 let passed = 0;
 let failed = 0;
 function assert(cond: boolean, name: string) {
@@ -44,13 +60,13 @@ function client() {
 }
 
 async function main() {
-  // ── 0. Cleanup: archive stale demo rounds stuck mid-setup ──
+  // ── 0. Cleanup: archive stale rounds stuck mid-setup ──
   await db.round.updateMany({
-    where: { isDemo: true, status: { in: ["registration_closed", "matching_pending"] } },
+    where: { status: { in: ["registration_closed", "matching_pending"] } },
     data: { status: "archived" },
   });
 
-  // ── 1. Admin setup ──
+  // ── 1. Admin setup: create round + open registration ──
   const admin = client();
   const login = await admin.call("/api/auth/login", {
     method: "POST",
@@ -58,27 +74,57 @@ async function main() {
   });
   assert(login.status === 200, "admin authenticated");
 
-  // Fresh demo seed (creates a registration_open demo round if none active)
-  await admin.call("/api/admin/demo", { method: "POST" });
-  const overview1 = (await admin.call("/api/admin/overview")).data as {
-    round: { id: string; status: string } | null;
-  };
-  const roundId = overview1.round!.id;
-  console.log(`  (demo round ${roundId} — ${overview1.round!.status})`);
+  const now = Date.now();
+  const created = await admin.call("/api/admin/rounds", {
+    method: "POST",
+    body: {
+      name: `E2E Round ${RUN}`,
+      registrationStart: new Date(now - 60 * 1000).toISOString(),
+      registrationEnd: new Date(now + 48 * 3600 * 1000).toISOString(),
+      matchingMode: "OPEN",
+    },
+  });
+  assert(created.status === 200 && !!(created.data.round as { id?: string } | undefined)?.id, "round created by admin");
+  const roundId = (created.data.round as { id: string }).id;
 
-  // Approve any pending registrations (test members registered earlier)
+  const opened = await admin.call(`/api/admin/rounds/${roundId}/action`, { method: "POST", body: { action: "open_registration" } });
+  assert(opened.status === 200, "registration opened");
+
+  // ── 2. Register 10 members via the public API ──
+  for (let i = 0; i < MEMBERS.length; i++) {
+    const m = MEMBERS[i];
+    const c = client();
+    const reg = await c.call("/api/registrations", {
+      method: "POST",
+      body: {
+        displayName: `E2E Member ${i + 1}`,
+        phone: `+216246${String(100000 + RUN % 100000).slice(0, 4)}${String(i).padStart(2, "0")}`.slice(0, 12),
+        email: m.email,
+        password: TEST_PASSWORD,
+        category: m.category,
+        interests: `Interests of member ${i + 1}`,
+        giftPrefs: `Gifts of member ${i + 1}`,
+        agreeRules: true,
+        agreeMessages: true,
+      },
+    });
+    if (reg.status !== 200) throw new Error(`member ${i + 1} registration failed: ${JSON.stringify(reg.data)}`);
+  }
+  assert(true, "10 members registered (5 A / 5 B)");
+
+  // Approve all pending registrations
   const parts = (await admin.call("/api/admin/participants")).data as {
     registrations: { id: string; verificationStatus: string; status: string; category: string }[];
   };
   for (const r of parts.registrations) {
-    if (r.verificationStatus === "PENDING" && r.status === "ACTIVE") {
+    if (r.verificationStatus === "PENDING" && r.status === "ACTIVE" && r.category) {
       await admin.call(`/api/admin/participants/${r.id}/action`, { method: "POST", body: { action: "approve" } });
     }
   }
 
-  // Re-read after approvals, then balance categories for the cross-mode demo
+  // Re-read after approvals and balance categories (others may linger from test-api runs)
   const parts2 = (await admin.call("/api/admin/participants")).data as {
-    registrations: { id: string; verificationStatus: string; status: string; category: string; isDemo: boolean }[];
+    registrations: { id: string; verificationStatus: string; status: string; category: string }[];
   };
   const active = parts2.registrations.filter((r) => r.status === "ACTIVE" && r.verificationStatus === "APPROVED");
   const countA = active.filter((r) => r.category === "A").length;
@@ -89,15 +135,7 @@ async function main() {
     console.log(`  (balancing groups: removing ${toRemove} extra member(s) from category ${excess})`);
     for (const r of active) {
       if (toRemove === 0) break;
-      if (r.category === excess && !r.isDemo) {
-        await admin.call(`/api/admin/participants/${r.id}/action`, { method: "POST", body: { action: "remove" } });
-        toRemove--;
-      }
-    }
-    // Prefer removing demo members if non-demo were insufficient
-    for (const r of active) {
-      if (toRemove === 0) break;
-      if (r.category === excess && r.isDemo) {
+      if (r.category === excess) {
         await admin.call(`/api/admin/participants/${r.id}/action`, { method: "POST", body: { action: "remove" } });
         toRemove--;
       }
@@ -143,13 +181,13 @@ async function main() {
   assert(verify.valid, "DB: full invariant verification passes");
 
   // ── 3. Messaging + moderation (acceptance #10, #11, #12) ──
-  // Pick a pair: yasmine should be someone's giver
-  const yasmine = await db.user.findUnique({ where: { email: "yasmine@demo.wlc" } });
-  const yasmineAssignment = await db.assignment.findFirst({ where: { roundId, giverId: yasmine!.id } });
-  assert(!!yasmineAssignment, "yasmine has an outgoing assignment");
+  // Pick a pair: member 1 should be someone's giver
+  const sender = await db.user.findUnique({ where: { email: MEMBERS[0].email } });
+  const senderAssignment = await db.assignment.findFirst({ where: { roundId, giverId: sender!.id } });
+  assert(!!senderAssignment, "member 1 has an outgoing assignment");
 
   const yas = client();
-  await yas.call("/api/auth/login", { method: "POST", body: { email: "yasmine@demo.wlc", password: "Demo2026!" } });
+  await yas.call("/api/auth/login", { method: "POST", body: { email: MEMBERS[0].email, password: TEST_PASSWORD } });
 
   // 3a. Allowed friendly message
   const good = await yas.call("/api/me/messages", { method: "POST", body: { destination: "friend", body: "Salut ! J'espère que ta semaine de stage se passe bien 😊 Courage !" } });
@@ -160,11 +198,11 @@ async function main() {
   assert(phone.status === 422 && phone.data.error === "REJECTED_BY_MODERATION", "contact-sharing message rejected");
 
   // 3c. Email → reject
-  const emailMsg = await yas.call("/api/me/messages", { method: "POST", body: { destination: "friend", body: "écris-moi à yasmine.test@gmail.com" } });
+  const emailMsg = await yas.call("/api/me/messages", { method: "POST", body: { destination: "friend", body: "écris-moi à test.member@gmail.com" } });
   assert(emailMsg.status === 422, "email in message rejected");
 
   // 3d. Social handle → reject
-  const social = await yas.call("/api/me/messages", { method: "POST", body: { destination: "friend", body: "mon insta c'est @yasmine_officiel" } });
+  const social = await yas.call("/api/me/messages", { method: "POST", body: { destination: "friend", body: "mon insta c'est @membre_officiel" } });
   assert(social.status === 422, "social handle rejected");
 
   // 3e. No assignment leak in dashboard (acceptance #9, #12)
@@ -174,17 +212,17 @@ async function main() {
   assert(!dashStr.includes("+21624551"), "dashboard leaks no phone numbers");
 
   // 3f. Recipient replies to admirer — routes to giver, not own recipient (acceptance #13)
-  const recipientId = yasmineAssignment!.recipientId;
+  const recipientId = senderAssignment!.recipientId;
   const recipientUser = await db.user.findUnique({ where: { id: recipientId } });
   const rec = client();
-  await rec.call("/api/auth/login", { method: "POST", body: { email: recipientUser!.email, password: "Demo2026!" } });
+  await rec.call("/api/auth/login", { method: "POST", body: { email: recipientUser!.email, password: TEST_PASSWORD } });
   const reply = await rec.call("/api/me/messages", { method: "POST", body: { destination: "admirer", body: "Merci pour ton message, il m'a vraiment fait plaisir aujourd'hui ✨" } });
   assert(reply.status === 200 || reply.status === 422, `reply processed by moderation pipeline (${reply.status})`);
   const replyStored = await db.message.findFirst({
     where: { roundId, senderId: recipientId },
     orderBy: { createdAt: "desc" },
   });
-  assert(!!replyStored && replyStored.recipientId === yasmine!.id, "reply routed to the actual admirer (giver), not to own recipient");
+  assert(!!replyStored && replyStored.recipientId === sender!.id, "reply routed to the actual admirer (giver), not to own recipient");
 
   // ── 4. Guessing phase (acceptance #14) ──
   const earlyGuess = await yas.call("/api/me/guess", { method: "POST", body: { guessedId: recipientId } });
@@ -193,7 +231,7 @@ async function main() {
   await admin.call(`/api/admin/rounds/${roundId}/action`, { method: "POST", body: { action: "open_guessing" } });
   const guessOk = await yas.call("/api/me/guess", { method: "POST", body: { guessedId: recipientId } });
   assert(guessOk.status === 200, "guess submitted during guessing window");
-  const guessSelf = await yas.call("/api/me/guess", { method: "POST", body: { guessedId: yasmine!.id } });
+  const guessSelf = await yas.call("/api/me/guess", { method: "POST", body: { guessedId: sender!.id } });
   assert(guessSelf.status === 400, "cannot guess yourself");
 
   // ── 5. Reveal gating (acceptance #16) ──
@@ -201,15 +239,15 @@ async function main() {
   assert(earlyReveal.status === 400 && earlyReveal.data.error === "GUESSING_STILL_OPEN", "reveal blocked before guessing deadline");
 
   // Simulate the end of the window (test harness manipulates dates directly)
-  const now = Date.now();
+  const nowEnd = Date.now();
   await db.round.update({
     where: { id: roundId },
     data: {
-      gameStart: new Date(now - 13.5 * 24 * 3600 * 1000),
-      guessingStart: new Date(now - 6 * 3600 * 1000),
-      guessingDeadline: new Date(now - 3600 * 1000),
-      gameEnd: new Date(now - 3600 * 1000),
-      revealAt: new Date(now - 30 * 60 * 1000),
+      gameStart: new Date(nowEnd - 13.5 * 24 * 3600 * 1000),
+      guessingStart: new Date(nowEnd - 6 * 3600 * 1000),
+      guessingDeadline: new Date(nowEnd - 3600 * 1000),
+      gameEnd: new Date(nowEnd - 3600 * 1000),
+      revealAt: new Date(nowEnd - 30 * 60 * 1000),
     },
   });
   const reveal = await admin.call(`/api/admin/rounds/${roundId}/action`, { method: "POST", body: { action: "reveal", confirm: true } });
@@ -218,22 +256,19 @@ async function main() {
   // Reveal data correct per member
   const revealData = (await yas.call("/api/me/reveal")).data as { revealed: boolean; admirer?: { displayName: string | null }; friend?: { displayName: string | null }; isWinner?: boolean };
   assert(revealData.revealed === true, "reveal data available after official reveal");
-  const admirerRow = assignments.find((a) => a.recipientId === yasmine!.id);
+  const admirerRow = assignments.find((a) => a.recipientId === sender!.id);
   const admirerUser = admirerRow ? await db.user.findUnique({ where: { id: admirerRow.giverId } }) : null;
   assert(revealData.admirer?.displayName === admirerUser?.displayName, `admirer identity matches DB (${revealData.admirer?.displayName})`);
 
-  // ── 6. Archive + fresh demo round for the user ──
+  // ── 6. Archive: round is closed cleanly, nothing left running ──
   await admin.call(`/api/admin/rounds/${roundId}/action`, { method: "POST", body: { action: "archive" } });
-  const seed2 = (await admin.call("/api/admin/demo", { method: "POST" })).data as { ok: boolean; roundId?: string };
-  assert(seed2.ok === true && !!seed2.roundId, "fresh demo round created for continued exploration");
-  const status2 = (await anon.call("/api/rounds/current")).data as { round: { status: string } | null };
-  assert(status2.round?.status === "registration_open", "landing will show an open registration");
+  const archived = await db.round.findUnique({ where: { id: roundId } });
+  assert(archived?.status === "archived", "round archived cleanly");
 
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed > 0 ? 1 : 0);
 }
 
-const anon = client();
 
 main()
   .then(async () => {

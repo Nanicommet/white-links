@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { requireAdmin, jsonError } from "@/lib/auth";
+import { audit } from "@/lib/audit";
 
 export const runtime = "nodejs";
 
