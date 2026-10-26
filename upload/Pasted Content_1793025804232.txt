@@ -1,0 +1,823 @@
+# Build WHITE LINKS — The Official Secret-Friend Game of White Line Club ISSIG
+
+## 1. YOUR ROLE
+
+Act as a senior full-stack developer, product designer, UX architect, database engineer, and security specialist.
+
+Build a complete, responsive, functional web application named **WHITE LINKS**, a recurring secret-friend game for White Line Club ISSIG, the student club at the Institut Supérieur des Sciences Infirmières de Gabès, Tunisia.
+
+Existing club website: https://whitelineissig.me/
+
+This new application must be inspired by the existing website's visual identity, brand personality, logo, typography, color palette, and overall quality.
+
+**Important:** Inspect the existing website before designing the application. Reuse its actual brand assets and visual language where accessible. Do not invent a different identity or redesign the main club website. Build White Links as a companion experience that links back to the original website.
+
+If working inside an existing website project, integrate the game under `/white-links` without breaking existing routes. If building a separate project, make it self-contained and include a link back to the main White Line Club website. Do not claim it is hosted on the existing domain unless the domain has actually been configured.
+
+Do not stop at a landing-page mockup. Build the full application, database schema, authentication, permission rules, business logic, user dashboards, and integration infrastructure. When external credentials are missing, implement the integration structure, a clear setup screen, and an honest demo mode instead of pretending the integration works.
+
+## 2. PRODUCT VISION
+
+White Links is a recurring 14-day anonymous kindness game designed to bring the members of White Line Club ISSIG closer together.
+
+Every participant is secretly assigned another participant to take care of.
+
+During the game, participants can:
+- Send anonymous messages.
+- Make their secret friend smile.
+- Leave small gifts or kind notes.
+- Perform thoughtful gestures.
+- Receive anonymous messages from the person secretly assigned to them.
+- Try to guess the identity of their secret admirer during the final reveal.
+
+The game runs in recurring rounds. Registration opens for 48 hours, the active game lasts 14 days, and the system manages the transition to the next round.
+
+### Brand identity
+
+Name: WHITE LINKS
+
+Primary tagline: "De petites attentions. Des liens invisibles."
+
+Secondary English tagline: "Small gestures. Secret connections."
+
+Brand personality:
+- Mysterious but welcoming.
+- Playful but elegant.
+- Friendly, caring, and trustworthy.
+- Young and modern, reflecting a university club.
+- Premium, polished, and thoughtfully designed.
+
+Make the application feel like entering a private world of secret missions, anonymous messages, envelopes, surprises, and hidden connections.
+
+Use subtle animations, elegant cards, thoughtful empty states, smooth transitions, and a refined visual hierarchy. Avoid childish cartoon styling, generic AI-generated dashboards, excessive gradients, and unnecessary gamification.
+
+The design must remain consistent with the real White Line Club brand. Sample the colors and typography from the existing website whenever possible rather than assuming exact color values.
+
+## 3. TECHNICAL ARCHITECTURE
+
+Use Lovable's supported full-stack backend, or connect Supabase if required by the project.
+
+Recommended architecture:
+- React and TypeScript.
+- Responsive component-based UI.
+- Supabase/PostgreSQL or the supported Lovable backend.
+- Secure authentication.
+- Database-level authorization and Row Level Security where supported.
+- Server-side functions for game logic and external API calls.
+- Scheduled or manually triggered backend jobs for round lifecycle events.
+- Realtime updates for inbox messages, notifications, and dashboard status where supported.
+
+Use environment secrets for all private API credentials.
+
+Never expose WhatsApp API tokens, AI API keys, service-role database keys, or privileged backend credentials in frontend code.
+
+Make the system modular so the WhatsApp provider, AI moderation provider, and notification system can be configured independently.
+
+Do not rely on browser state or client-side checks for security, matching uniqueness, or reveal permissions.
+
+## 4. WEBSITE STRUCTURE AND ROUTES
+
+Create the following pages.
+
+### A. Public landing page
+
+Route: `/white-links`
+
+This is the main public-facing page for the game.
+
+Include:
+
+1. A refined navigation bar with the White Links logo/wordmark, a link to White Line Club ISSIG, How It Works, Rules, and a prominent registration or dashboard button.
+2. A hero section with a compelling title, short description, elegant mystery-themed illustration, and primary call to action.
+3. A live status section displaying the current round state:
+   - Registration open.
+   - Registration closing soon.
+   - Registration closed.
+   - Assignments being prepared.
+   - Game in progress.
+   - Guessing phase.
+   - Reveal completed.
+4. A countdown to the relevant deadline or next event.
+5. A three-step explanation of how the game works.
+6. A preview of anonymous messaging.
+7. A kindness missions section.
+8. A short rules and privacy section.
+9. Frequently asked questions.
+10. A footer with a link to https://whitelineissig.me/ and the club's identity.
+
+Only show live information from the database when it exists. During initial setup, use a clear setup or demo status rather than inventing an active round.
+
+### B. Registration page
+
+Route: `/white-links/register`
+
+Create an elegant multi-step registration form.
+
+Required fields:
+- Full name.
+- WhatsApp phone number with Tunisia (+216) as the suggested default country code.
+- The matching category required by the active game rules.
+- Email address if required for account authentication.
+- Agreement to the rules and privacy notice.
+- Consent to receive game-related messages.
+
+Optional fields:
+- Interests and hobbies.
+- Gift preferences.
+- Things the participant enjoys, useful for suggesting thoughtful gestures.
+
+Do not collect unnecessary sensitive information.
+
+Form requirements:
+- Validate and normalize phone numbers before saving.
+- Store normalized numbers in a consistent international format.
+- Prevent duplicate registrations for the same phone number in one round.
+- Prevent registration after the deadline.
+- Clearly explain the matching rules before submission.
+- Clearly explain how anonymous messages are processed.
+- Show validation errors next to the relevant fields.
+- Save registration state to the database.
+- Display a successful confirmation page.
+- Make it impossible to submit a second registration for the same person and round.
+- Provide the ability to withdraw before assignments are finalized, subject to clearly displayed rules.
+
+If phone verification is not configured, mark the phone as unverified and require administrator approval or another real verification mechanism before that participant can be matched. Do not display a fake verification success.
+
+### C. Authentication
+
+Build functional login, logout, and account recovery flows using the supported authentication provider.
+
+Protect all private routes.
+
+A member should be able to access only their own profile, registration, assignment details, messages, guesses, and personal notifications.
+
+Use the WhatsApp number for matching inbound messages to the registered participant. Do not treat knowledge of a phone number alone as sufficient authorization to access the account or private dashboard.
+
+### D. Member dashboard
+
+Route: `/white-links/dashboard`
+
+Design a private, mobile-friendly dashboard.
+
+Show:
+- The member's current game status.
+- A live countdown.
+- The identity of the person they must take care of.
+- A short summary of that person's optional interests or gift preferences.
+- Daily kindness mission suggestions.
+- The anonymous message inbox.
+- The button to open their message center.
+- Progress through the round.
+- The guessing form when guesses are open.
+- Reveal results and next-round reward information once available.
+
+Never show the identity of the member's secret admirer during an active round.
+
+Do not display assignment identifiers, database IDs, raw assignment records, the admirer's phone number, or any indirect way to retrieve the hidden identity.
+
+The information shown must be derived from the authenticated member's authorized server response, not from an unrestricted client-side database query.
+
+### E. Anonymous message center
+
+Route: `/white-links/messages`
+
+Build a polished private inbox and messaging interface.
+
+Features:
+- Conversation thread with the member's anonymous secret admirer.
+- Clear separation between replies to the admirer and messages sent to the person the member is taking care of.
+- Message timestamps.
+- Delivery and moderation status.
+- Unread indicators.
+- Error states for failed delivery.
+- A report-message action.
+- A clear explanation that the sender's identity is hidden.
+
+Messages must be persisted in the backend and scoped to the appropriate participant pair and round.
+
+The interface must never reveal the secret sender's account, phone number, profile, or assignment details.
+
+Support a configurable message length limit and reasonable rate limiting.
+
+### F. Guessing page
+
+Route: `/white-links/guess`
+
+This page becomes available only during the configured guessing period.
+
+Allow each participant to:
+- View the eligible participant list.
+- Select their guess for who has been taking care of them.
+- Review their selection.
+- Submit and lock the guess before the deadline.
+
+The participant can change their guess while the guessing phase remains open, but only the latest valid guess counts.
+
+After submission, show a confirmation that their guess is locked only when the backend has successfully stored it.
+
+After the deadline, reject further changes.
+
+Never expose the true assignment before the official reveal event.
+
+### G. Reveal page
+
+Route: `/white-links/reveal`
+
+Before the reveal:
+- Show a suspenseful countdown.
+- Display a locked-state message.
+- Do not return secret assignments to the frontend.
+
+After the reveal:
+- Show the person who was secretly taking care of the current member.
+- Reveal the member's own assignment as part of the completed round.
+- Present correct and incorrect guesses.
+- Explain reward eligibility.
+- Display a celebratory, polished reveal animation.
+- Show the next round's important dates if configured.
+
+Only reveal identities after the server verifies that the round is eligible for reveal.
+
+### H. Administrator dashboard
+
+Route: `/white-links/admin`
+
+Implement role-based administrator access.
+
+Create these sections:
+
+**Overview**
+- Current round and game status.
+- Registration totals.
+- Counts by matching category.
+- Upcoming deadlines.
+- Unverified registrations.
+- Pending moderation cases.
+- Failed message deliveries.
+- Integration health indicators.
+
+**Round management**
+- Create a round.
+- Edit round dates and configuration before assignments are finalized.
+- Open or close registration.
+- Validate eligible participants.
+- Run matching in preview mode.
+- Confirm and finalize assignments.
+- Start or pause a round.
+- Open and close the guessing period.
+- Trigger the official reveal.
+- Archive a completed round.
+
+Require an explicit confirmation before finalizing assignments or revealing identities.
+
+Never let a client-side action directly bypass the server's lifecycle validation.
+
+**Participant management**
+- View registration status.
+- Approve or reject unverified participants.
+- Remove duplicate or invalid registrations.
+- Handle withdrawal requests.
+- View the status of individual participants.
+- Access protected assignment information only through explicitly authorized game-master permissions.
+
+**Matching diagnostics**
+- Display the number of eligible participants in each category.
+- Detect unbalanced participant groups.
+- Show whether a valid assignment is possible.
+- Display validation errors before matching.
+- Allow an administrator to preview a randomized assignment set without exposing it to participants.
+- Confirm that every participant gives to exactly one person and receives from exactly one person.
+- Prevent duplicate recipients and self-assignments.
+
+**Moderation**
+- Review flagged messages.
+- See the reason for flagging.
+- Approve or reject questionable messages.
+- Restrict a participant from messaging when appropriate.
+- Record moderation decisions.
+
+**Rewards**
+- View participants with correct guesses.
+- Review their next-round preferences.
+- Resolve conflicting selections through a documented, fair priority and tie-break process.
+
+**Settings**
+- Registration duration.
+- Game duration.
+- Guessing window.
+- Reveal date and time.
+- Matching mode.
+- Gender/category matching configuration.
+- Message length limits.
+- AI moderation configuration.
+- WhatsApp integration configuration.
+- Message retention policy.
+- Participation and withdrawal rules.
+
+Use permissions that prevent ordinary administrators from accessing unnecessary private message content or hidden assignments.
+
+Log sensitive administrative actions, including changes to assignments, moderation decisions, participant removals, and reveal actions.
+
+## 5. ROUND LIFECYCLE
+
+Implement a server-enforced state machine.
+
+Suggested statuses:
+- `draft`
+- `registration_open`
+- `registration_closed`
+- `matching_pending`
+- `active`
+- `guessing_open`
+- `revealed`
+- `archived`
+
+Define valid transitions and enforce them in backend logic.
+
+Registration should be open for exactly 48 hours by default.
+
+Once registration closes:
+1. Freeze the eligible participant list.
+2. Validate registrations and matching constraints.
+3. Generate assignments using a secure server-side algorithm.
+4. Verify all assignment invariants.
+5. Save the assignment set atomically.
+6. Notify participants only after finalization succeeds.
+7. Transition the round to active.
+
+Use database transactions or an equivalent atomic operation when finalizing assignments.
+
+Do not allow two concurrent requests to generate conflicting assignments. Assignment finalization must be idempotent: retries must not create another set of assignments.
+
+The active game lasts 14 days by default.
+
+Allow a configurable guessing window on the final day. Reveal should happen only after the guessing deadline has passed.
+
+Support advance registration for the next round during the final 48 hours of the current round, if administrators enable it. However, do not finalize the next round's assignments until its participant list, any eligible reward preferences, and matching constraints have been validated.
+
+Use timezone `Africa/Tunis` for scheduling and display dates in the appropriate local timezone.
+
+Use backend timestamps as the source of truth.
+
+## 6. MATCHING ENGINE — CRITICAL
+
+The matching engine is the most important part of the product.
+
+Every participant must have:
+- Exactly one outgoing assignment: the person they take care of.
+- Exactly one incoming assignment: the person who takes care of them.
+
+These invariants must be enforced server-side.
+
+### Matching mode A: Cross-category matching
+
+Provide a configurable cross-gender matching rule consistent with the club's chosen policy.
+
+If the rule is enabled:
+- Each participant in group A must be assigned to a participant in group B.
+- Each participant in group B must be assigned to a participant in group A.
+- Both eligible groups must have equal participant counts.
+- Each participant appears exactly once as a giver and exactly once as a recipient.
+- Self-assignment is impossible.
+
+If participant counts are unequal, do not finalize assignments. Display a clear administrator error explaining the imbalance and the options for resolving it.
+
+### Matching mode B: Open matching
+
+Provide an alternative mode in which anyone may be assigned to another eligible participant regardless of matching category.
+
+Generate a randomized derangement: no participant is assigned to themselves, each person receives exactly one giver, and every participant gives to exactly one other participant.
+
+The mode must respect any supported exclusion preferences.
+
+### General assignment requirements
+
+- Validate all constraints on the server.
+- Do not generate assignments when there are too few eligible participants.
+- Prevent a participant from appearing multiple times as a recipient.
+- Avoid obvious reciprocal pairs when feasible and when doing so does not violate the other constraints.
+- If preferences or exclusions make a valid assignment impossible, return a clear error rather than silently violating a rule.
+- Revalidate assignments before committing them.
+- Verify invariants after saving.
+- Do not notify participants of failed or uncommitted assignments.
+
+Support a secure assignment repair process for withdrawals or exceptional cases after the game starts. Reassignment must preserve all one-to-one invariants and must not expose other people's hidden assignments. Require administrator authorization and an audit record.
+
+### Reward preference matching
+
+Participants who correctly guess their admirer earn priority to request a preferred recipient in the next round.
+
+Let winners rank up to three eligible participants.
+
+Use these ranked preferences to guide the next matching algorithm while preserving the matching constraints.
+
+If multiple winners select the same person:
+- Apply a transparent priority rule.
+- Use a secure randomized tie-break when required.
+- Try the winners' next-ranked preferences.
+- Complete the remaining assignments randomly.
+- Guarantee that every participant still has exactly one giver and one recipient.
+
+Do not guarantee a requested person if accepting that preference would make valid matching impossible. Explain the reward rules before the guessing period opens.
+
+## 7. ANONYMOUS WHATSAPP INTEGRATION
+
+Use the official WhatsApp Business Platform or Cloud API through a supported provider.
+
+Do not use unofficial WhatsApp Web scraping, browser automation, or methods that require sharing a personal WhatsApp session.
+
+Create secure backend endpoints/functions for:
+- Receiving inbound WhatsApp webhook events.
+- Verifying incoming webhook requests according to the provider's requirements.
+- Identifying the registered participant using the normalized, verified phone number.
+- Checking whether the participant and round are eligible for messaging.
+- Invoking message moderation.
+- Routing accepted messages.
+- Sending outbound WhatsApp messages.
+- Recording provider message IDs and delivery status.
+- Handling retries and webhook duplicates safely.
+- Processing delivery and failure callbacks where supported.
+
+Keep all access tokens and provider secrets in backend secrets.
+
+### Message-routing model
+
+Each active participant has:
+- A `recipient_id`: the person they are taking care of.
+- A `giver_id`: the person secretly taking care of them.
+
+Never expose these IDs in the public frontend.
+
+Support two distinct communication actions:
+
+**Send to my secret friend:** route the message from the authenticated participant to the participant identified by their outgoing assignment.
+
+**Reply to my secret admirer:** route the response to the participant identified by their incoming assignment.
+
+These actions must be clearly distinguished in the website inbox.
+
+For WhatsApp, implement a simple command or menu system to distinguish the two actions. For example, participants can send:
+- `1 [message]` to message the person they take care of.
+- `2 [message]` to reply to their secret admirer.
+
+Provide an introductory automated response explaining these commands. Allow the commands to be configurable.
+
+When a participant sends a bare message without an unambiguous routing action, ask them which destination they intend instead of guessing.
+
+### Anonymity requirements
+
+When forwarding a message:
+- Send it from the official White Links business number.
+- Strip sender identifiers, phone numbers, metadata, and contact details from the forwarded content.
+- Do not include the original sender's name.
+- Do not include the original sender's WhatsApp number.
+- Do not leak internal participant IDs or assignment records.
+- Label the message as coming from the participant's anonymous secret friend.
+- Store the actual sender and recipient association securely in the backend for authorization and moderation.
+
+Never forward a rejected or unreviewed message.
+
+Use approved WhatsApp templates where the provider requires them. Respect applicable message-session rules, opt-in requirements, rate limits, and provider policies.
+
+If WhatsApp credentials have not been configured, show the integration as `Not configured`. Do not display fake delivered statuses or claim messages have been sent.
+
+Provide a test mode for validating routing without sending real messages.
+
+## 8. AI MESSAGE MODERATION
+
+Implement an AI moderation service using a secure server-side function and a configurable AI provider.
+
+The AI moderates messages. It must never generate, modify, or decide assignments.
+
+Before forwarding a message:
+1. Validate the registered sender and round status.
+2. Apply deterministic filters for obvious prohibited content.
+3. Detect phone numbers, email addresses, URLs, social media handles, and other potential contact details.
+4. Ask the AI to classify the message for attempts to reveal identities, explicit identity hints, harassment, threats, sexual harassment, discriminatory abuse, prohibited contact exchange, and attempts to bypass game rules.
+5. Decide whether to allow, reject, or send the message to a human moderation queue.
+6. Forward only an accepted message.
+7. Record the moderation result and delivery status.
+
+Require structured moderation output, such as:
+- `decision`: `allow`, `reject`, or `review`.
+- `reason_code`.
+- `safe_explanation`.
+- `confidence`.
+
+Do not display private chain-of-thought or hidden reasoning.
+
+Do not send participant phone numbers, secret assignment mappings, or unnecessary personal profile information to the AI provider. Send only the minimum information required to classify the message.
+
+The moderation service must:
+- Detect direct and obvious attempts to identify the sender.
+- Flag requests to exchange personal social-media accounts or phone numbers.
+- Flag harassment, coercion, and threatening messages.
+- Avoid blocking ordinary compliments, jokes, kind messages, or natural Tunisian Arabic, French, and Arabic expressions unnecessarily.
+- Allow a participant to rewrite a rejected message.
+- Queue uncertain cases for review.
+- Apply rate limits and prevent automated message floods.
+- Provide participants with a simple explanation when a message is rejected.
+
+If the AI provider is not configured or the moderation request fails, do not silently bypass moderation. Place messages into a safe pending state or use another explicitly configured moderation process.
+
+Be transparent that AI moderation cannot guarantee detection of every indirect identity clue.
+
+Provide a report and block mechanism so a participant can raise a concern with the club's authorized moderators.
+
+Do not use private messages for unrelated model training or analytics.
+
+## 9. DATABASE DESIGN
+
+Create a relational schema with appropriate constraints and indexes.
+
+Suggested entities:
+
+**profiles**
+- Authentication user ID.
+- Display name.
+- Contact verification status.
+- Account role.
+- Created timestamp.
+
+**rounds**
+- ID.
+- Name.
+- Registration start and end timestamps.
+- Game start and end timestamps.
+- Guessing deadline.
+- Reveal timestamp.
+- Lifecycle status.
+- Matching mode.
+- Matching settings.
+- Created and updated timestamps.
+
+**registrations**
+- ID.
+- Round ID.
+- Profile ID.
+- Normalized WhatsApp phone number or secure reference to the verified contact record.
+- Matching category.
+- Optional interests and gift preferences.
+- Consent timestamps.
+- Verification status.
+- Registration status.
+
+**assignments**
+- ID.
+- Round ID.
+- Giver ID.
+- Recipient ID.
+- Creation timestamp.
+- Assignment status.
+
+Add a unique constraint ensuring that a giver has only one assignment per round and another ensuring that a recipient receives at most one giver per round.
+
+Prevent self-assignment through database or transactional validation.
+
+**messages**
+- ID.
+- Round ID.
+- Sender ID.
+- Recipient ID.
+- Body.
+- Moderation status.
+- Moderation reason code.
+- Delivery status.
+- Provider message ID, when applicable.
+- Timestamp.
+
+**guesses**
+- ID.
+- Round ID.
+- Guesser ID.
+- Guessed admirer ID.
+- Submission timestamp.
+- Locked status.
+
+Allow only one active guess per participant per round, with updates allowed only during the guessing window.
+
+**notifications**
+- ID.
+- User ID.
+- Round ID.
+- Notification type.
+- Delivery state.
+- Created timestamp.
+
+**reward_preferences**
+- ID.
+- Round ID.
+- Winner ID.
+- Ranked preference list or normalized preference records.
+- Final status.
+
+**moderation_reports**
+- ID.
+- Round ID.
+- Reporter.
+- Message reference.
+- Reason.
+- Resolution.
+- Timestamp.
+
+**audit_logs**
+- Administrative actor.
+- Action.
+- Target resource.
+- Timestamp.
+- Relevant non-sensitive metadata.
+
+Adapt the schema if the backend has a better supported pattern, but preserve all relationships and invariants.
+
+Never store privileged tokens or secrets in ordinary database rows.
+
+## 10. SECURITY, PRIVACY, AND ACCESS CONTROL
+
+Use least-privilege access rules and backend authorization.
+
+A participant may access only:
+- Their own profile.
+- Their own registration.
+- Their outgoing assignment's recipient name and permitted gift preferences.
+- Their own anonymous inbox.
+- Messages they are authorized to send or receive.
+- Their own guess and reveal results.
+- Their own notifications and reward preferences.
+
+A participant must never be able to:
+- Query another participant's phone number.
+- Retrieve all assignments.
+- Query another person's incoming assignment.
+- Read messages from unrelated pairs.
+- Guess assignment IDs to retrieve hidden identities.
+- Forge another sender's ID.
+- Bypass the round status.
+- Modify their own role or verification status.
+- Change or reveal a locked guess after the deadline.
+
+Enforce these rules in database access policies and server-side functions, not merely by hiding interface elements.
+
+Restrict assignment reads, message access, and reveal operations to narrowly defined permissions.
+
+Keep administrative and reveal operations auditable.
+
+Add rate limiting, input validation, protection against duplicate webhook processing, safe error handling, and secure secret storage.
+
+Set an explicit data-retention policy and provide a way to delete or anonymize old message content after the configured retention period, consistent with the club's privacy policy and any necessary audit requirements.
+
+Provide a plain-language privacy notice that explains what data is collected, why messages are reviewed by AI, which parties may access flagged content, and how long data is retained.
+
+## 11. SCHEDULING AND CONTINUOUS ROUNDS
+
+The intended rhythm is:
+- Registration: 48 hours.
+- Active game: 14 days.
+- Guessing: configurable period on the final day.
+- Reveal: after guesses close.
+- Next-round registration: may overlap the end of the current round by 48 hours.
+
+Create reliable server-side scheduled jobs or an equivalent supported scheduling mechanism.
+
+Do not rely on a browser remaining open.
+
+Use idempotent jobs and safe retries so the system does not send duplicate announcements or process the same transition multiple times.
+
+Generate participant notifications for:
+- Registration confirmation.
+- Registration closing reminder.
+- Game launch.
+- Secret assignment.
+- Daily optional kindness mission.
+- Guessing opening.
+- Guessing deadline.
+- Reveal.
+- Next-round registration.
+
+Allow administrators to configure which reminders are active.
+
+Daily kindness missions may include:
+- Send a sincere compliment.
+- Make someone laugh.
+- Leave a positive anonymous note.
+- Help with a small task.
+- Give a small, thoughtful surprise.
+- Share an encouraging message.
+
+Make participation in individual missions optional. Do not require financial spending.
+
+## 12. LANGUAGE, RESPONSIVENESS, AND ACCESSIBILITY
+
+The default interface language is French, consistent with the club website.
+
+Provide an Arabic language option, including correct right-to-left layout and direction. Keep the application ready for future English support.
+
+Allow French, Arabic, and Tunisian Arabic messages in the message system.
+
+Create a mobile-first responsive interface that works on phones, tablets, and desktop screens.
+
+Use accessible contrast, readable typography, visible focus states, correctly labelled inputs, meaningful error messages, and keyboard-accessible controls.
+
+Ensure the WhatsApp-related features remain usable on mobile.
+
+Provide loading states, empty states, success notifications, error states, and confirmation dialogs.
+
+Do not use placeholder buttons that do nothing. Every visible action must work, or be clearly marked as unavailable until the required integration is configured.
+
+## 13. DESIGN DIRECTION
+
+Study https://whitelineissig.me/ and derive the actual visual system from it.
+
+Create a consistent White Links visual identity with:
+- White Line Club branding.
+- A light, airy surface with strong readable typography.
+- The actual club colors or closely derived accents.
+- Elegant secret-envelope, ribbon, gift, and connection motifs.
+- Refined rounded cards and subtle shadows.
+- Small, tasteful motion effects.
+- Smooth, restrained reveal animations.
+- A clear, friendly dashboard with no overwhelming clutter.
+
+The landing page should feel like a polished club initiative. The member dashboard should feel private and personal. The admin dashboard should prioritize clarity, operational status, and safety.
+
+Use real icons and designed components rather than emoji-based navigation.
+
+Respect reduced-motion preferences.
+
+Do not use a generic dark hacker theme, excessive neon colors, or a childish secret-agent theme.
+
+## 14. DEMO MODE AND INTEGRATION SETUP
+
+Provide a clearly labelled demo environment for testing the complete experience without real members or real WhatsApp messages.
+
+Seed demo data only in the demo environment.
+
+Demo mode must let an authorized tester:
+- Preview the landing page.
+- Test registration validation.
+- Run a matching simulation.
+- Verify matching invariants.
+- Test message routing with sample messages.
+- Review moderation outcomes.
+- Submit guesses.
+- Preview the reveal.
+
+Never mix demo identities or messages with real production data.
+
+Create an administrator integration settings screen showing the status of:
+- Backend and database.
+- Authentication.
+- AI moderation.
+- WhatsApp Business API.
+- Scheduled jobs.
+- Message delivery.
+
+Show clear instructions for configuring any missing integration.
+
+Never imply that a third-party integration is operational before it has been configured and tested successfully.
+
+## 15. ACCEPTANCE TESTS
+
+Before considering the application complete, verify these scenarios:
+
+1. A participant cannot register twice in the same round using the same normalized phone number.
+2. Registration automatically closes when the 48-hour deadline passes.
+3. An unverified or ineligible participant cannot be included in finalized assignments.
+4. Cross-category matching refuses to start when the eligible groups are unbalanced.
+5. Every successful matching run produces exactly one outgoing assignment and one incoming assignment per participant.
+6. No participant is assigned to themselves.
+7. No recipient is assigned more than one giver.
+8. Repeating the matching request cannot create duplicate assignments.
+9. A participant can never retrieve another participant's private assignment through a client or API request.
+10. A message is sent only through an authorized, unambiguous routing action.
+11. A rejected or pending message is never delivered as an accepted message.
+12. The message recipient cannot see the sender's name, WhatsApp number, or account identity before reveal.
+13. A participant can respond anonymously to their admirer without accidentally sending the response to their own recipient.
+14. Guess submission and updates stop when the deadline passes.
+15. Secret assignments remain inaccessible before the official reveal.
+16. The reveal occurs only after the server validates the round state.
+17. Reward preferences never override assignment uniqueness or matching rules.
+18. Repeated webhook delivery does not create duplicate messages.
+19. Missing provider credentials result in honest setup messages instead of fake success.
+20. Unauthorized users cannot access the administrator dashboard or privileged operations.
+
+Add automated tests for the matching algorithm and the critical security boundaries wherever supported.
+
+## 16. IMPLEMENTATION APPROACH
+
+Build the application in coherent stages while preserving a consistent, fully integrated project.
+
+First, establish the design system, page structure, database schema, authentication, and roles.
+
+Second, implement registration, round management, and the matching algorithm with its invariants and tests.
+
+Third, implement member dashboards, assignments, messaging, guessing, reveal, and rewards.
+
+Fourth, implement AI moderation, WhatsApp integration endpoints, scheduling, and administrator configuration.
+
+Fifth, run the acceptance tests, fix errors, and verify the mobile experience.
+
+Do not remove a requirement simply because a third-party API is not configured. Implement the backend interface, required secrets, setup instructions, and safe unavailable state.
+
+Make sensible product decisions without repeatedly asking for clarification. Use the defaults described above.
+
+**Final goal:** deliver a complete, secure, mobile-first White Links application that extends the White Line Club ISSIG brand and can be configured for a real game, with no fake functionality and no compromise of participants' anonymity.

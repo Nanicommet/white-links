@@ -1,0 +1,265 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────────────────────
+// WHITE LINKS — Secret-friend game of White Line Club ISSIG
+// NOTE: SQLite does not support Prisma enums; status fields are
+// strings validated in src/lib/* (zod + TS constants).
+// ─────────────────────────────────────────────────────────────
+
+model User {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  passwordHash  String
+  displayName   String
+  phone         String // normalized international format e.g. +21624555123
+  role          String   @default("MEMBER") // MEMBER | ADMIN
+  phoneVerified Boolean  @default(false)
+  isDemo        Boolean  @default(false)
+  restrictedUntil DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  registrations       Registration[]
+  assignmentsGiven    Assignment[]   @relation("AssignmentGiver")
+  assignmentsReceived Assignment[]   @relation("AssignmentRecipient")
+  messagesSent        Message[]      @relation("MessageSender")
+  messagesReceived    Message[]      @relation("MessageRecipient")
+  guesses             Guess[]
+  notifications       Notification[]
+  rewardPreferences   RewardPreference[]
+  reportsMade         ModerationReport[] @relation("Reporter")
+  auditLogs           AuditLog[]
+  resetRequests       PasswordResetRequest[]
+}
+
+model Round {
+  id             String   @id @default(cuid())
+  name           String
+  status         String   @default("draft")
+  // draft | registration_open | registration_closed | matching_pending | active | guessing_open | revealed | archived
+  registrationStart DateTime
+  registrationEnd   DateTime
+  gameStart      DateTime?
+  gameEnd        DateTime?
+  guessingStart  DateTime?
+  guessingDeadline DateTime?
+  revealAt       DateTime?
+  matchingMode   String   @default("OPEN") // OPEN | CROSS_CATEGORY
+  messageMaxLength Int    @default(500)
+  missionsEnabled Boolean @default(true)
+  isDemo         Boolean  @default(false)
+  nextRoundRegistrationEnabled Boolean @default(false)
+  matchingConfig String? // JSON blob (category labels, exclusions…)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  registrations     Registration[]
+  assignments       Assignment[]
+  messages          Message[]
+  guesses           Guess[]
+  notifications     Notification[]
+  rewardPreferences RewardPreference[]
+  reports           ModerationReport[]
+}
+
+model Registration {
+  id                String   @id @default(cuid())
+  roundId           String
+  userId            String
+  phone             String // normalized
+  category          String // "A" | "B"
+  interests         String?
+  giftPrefs         String?
+  consentRulesAt    DateTime
+  consentMessages   Boolean  @default(true)
+  verificationStatus String  @default("PENDING") // PENDING | APPROVED | REJECTED
+  status            String   @default("ACTIVE") // ACTIVE | WITHDRAWN | REMOVED
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  round Round @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([roundId, userId])
+  @@unique([roundId, phone])
+  @@index([roundId, status])
+}
+
+model Assignment {
+  id                 String   @id @default(cuid())
+  roundId            String
+  giverId            String
+  recipientId        String
+  status             String   @default("ACTIVE") // ACTIVE | REVOKED
+  honoredPreference  Boolean  @default(false)
+  createdAt          DateTime @default(now())
+
+  round     Round @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  giver     User  @relation("AssignmentGiver", fields: [giverId], references: [id], onDelete: Cascade)
+  recipient User  @relation("AssignmentRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+
+  @@unique([roundId, giverId])
+  @@unique([roundId, recipientId])
+  @@index([roundId])
+}
+
+model Message {
+  id               String   @id @default(cuid())
+  roundId          String
+  senderId         String
+  recipientId      String
+  body             String
+  source           String   @default("WEB") // WEB | WHATSAPP
+  modStatus        String   @default("PENDING") // PENDING | ALLOWED | REJECTED | REVIEW
+  modReason        String?
+  modExplanation   String?
+  modConfidence    Float?
+  modSource        String? // FILTER | AI | ADMIN
+  deliveryStatus   String   @default("QUEUED") // QUEUED | SENT | FAILED | SIMULATED | NOT_CONFIGURED
+  providerMessageId String? @unique
+  reported         Boolean  @default(false)
+  readAt           DateTime?
+  createdAt        DateTime @default(now())
+
+  round     Round @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  sender    User  @relation("MessageSender", fields: [senderId], references: [id], onDelete: Cascade)
+  recipient User  @relation("MessageRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+
+  @@index([roundId, senderId, recipientId])
+  @@index([recipientId, modStatus])
+}
+
+model Guess {
+  id          String   @id @default(cuid())
+  roundId     String
+  guesserId   String
+  guessedId   String
+  locked      Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  round   Round @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  guesser User  @relation(fields: [guesserId], references: [id], onDelete: Cascade)
+
+  @@unique([roundId, guesserId])
+}
+
+model Notification {
+  id         String   @id @default(cuid())
+  userId     String
+  roundId    String?
+  type       String
+  title      String
+  body       String
+  dedupeKey  String?  @unique
+  read       Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  user  User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  round Round? @relation(fields: [roundId], references: [id], onDelete: SetNull)
+
+  @@index([userId, read])
+}
+
+model RewardPreference {
+  id        String   @id @default(cuid())
+  roundId   String // round where the preference will be applied
+  earnedInRoundId String // round where the win happened
+  winnerId  String
+  targetId  String
+  rank      Int // 1..3
+  status    String   @default("PENDING") // PENDING | HONORED | NOT_HONORED | CONFLICT
+  createdAt DateTime @default(now())
+
+  round Round @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  winner User @relation(fields: [winnerId], references: [id], onDelete: Cascade)
+
+  @@unique([roundId, winnerId, rank])
+  @@index([roundId, targetId])
+}
+
+model ModerationReport {
+  id         String   @id @default(cuid())
+  roundId    String
+  reporterId String
+  messageId  String?
+  reason     String
+  status     String   @default("OPEN") // OPEN | RESOLVED
+  resolution String?
+  resolvedBy String?
+  createdAt  DateTime @default(now())
+  resolvedAt DateTime?
+
+  round    Round @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  reporter User  @relation("Reporter", fields: [reporterId], references: [id], onDelete: Cascade)
+
+  @@index([roundId, status])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  actorId   String? // null = system
+  actorName String   @default("system")
+  action    String
+  target    String?
+  meta      String? // JSON, non-sensitive
+  createdAt DateTime @default(now())
+
+  actor User? @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+}
+
+model PasswordResetRequest {
+  id        String   @id @default(cuid())
+  userId    String
+  status    String   @default("OPEN") // OPEN | DONE
+  note      String?
+  createdAt DateTime @default(now())
+  resolvedAt DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+}
+
+model JobLog {
+  id        String   @id @default(cuid())
+  jobKey    String   @unique // idempotency key, e.g. close-reg:{roundId}
+  type      String
+  detail    String?
+  createdAt DateTime @default(now())
+}
+
+model InboundEvent {
+  id         String   @id // provider event/message id → webhook dedupe
+  payload    String?
+  createdAt  DateTime @default(now())
+}
+
+model Settings {
+  id                 String   @id @default("global")
+  registrationHours  Int      @default(48)
+  gameDays           Int      @default(14)
+  guessingHours      Int      @default(12)
+  messageMaxLength   Int      @default(500)
+  messageRatePerHour Int      @default(10)
+  minParticipants    Int      @default(4)
+  missionsEnabled    Boolean  @default(true)
+  autoTransitions    Boolean  @default(true)
+  aiModerationEnabled Boolean @default(true)
+  whatsappTestMode   Boolean  @default(true)
+  retentionDays      Int      @default(90)
+  categoryALabel     String   @default("Fille")
+  categoryBLabel     String   @default("Garçon")
+  reminderCloseHours  Int     @default(12)
+  authSecret         String   @default("")
+  updatedAt          DateTime @updatedAt
+}
