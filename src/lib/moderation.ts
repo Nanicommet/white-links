@@ -3,7 +3,8 @@ import type { ReasonCode } from "@/lib/constants";
 // ─────────────────────────────────────────────────────────────────
 // WHITE LINKS message moderation
 // Layer 1: deterministic filters (contact details, obvious abuse)
-// Layer 2: AI classification via z-ai-web-dev-sdk (server only)
+// Layer 2: AI classification (OpenAI-compatible endpoint via env vars,
+//          falls back to z-ai-web-dev-sdk when present)
 // Failure policy: never silently bypass → "review" (human queue).
 // Never sends assignment mappings or phone numbers to the provider.
 // ─────────────────────────────────────────────────────────────────
@@ -122,6 +123,42 @@ Important:
 Réponds UNIQUEMENT avec ce JSON exact, sans texte autour:
 {"decision":"allow"|"reject"|"review","reason_code":"OK|IDENTITY_HINT|CONTACT_EXCHANGE|HARASSMENT|SEXUAL_HARASSMENT|THREAT|DISCRIMINATION|RULE_BYPASS|SPAM","safe_explanation":"phrase courte et bienveillante en français pour le participant","confidence":0.0-1.0}`;
 
+interface ChatChoiceMessage {
+  choices?: { message?: { content?: string } }[];
+}
+
+// Calls an OpenAI-compatible /chat/completions endpoint.
+// Configure with AI_API_KEY (+ optional AI_BASE_URL, AI_MODEL).
+async function aiChat(messages: { role: string; content: string }[]): Promise<string> {
+  const apiKey = process.env.AI_API_KEY?.trim();
+  if (apiKey) {
+    const baseUrl = (process.env.AI_BASE_URL?.trim() || "https://api.z.ai/api/paas/v4").replace(/\/+$/, "");
+    const model = process.env.AI_MODEL?.trim() || "glm-4.5-flash";
+    const res = await fetch(`${baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ model, messages, temperature: 0.1, max_tokens: 300 }),
+      signal: AbortSignal.timeout(20000),
+    });
+    if (!res.ok) throw new Error(`AI_HTTP_${res.status}`);
+    const data = (await res.json()) as ChatChoiceMessage;
+    return data.choices?.[0]?.message?.content?.trim() ?? "";
+  }
+
+  // Sandbox/local fallback: z-ai-web-dev-sdk reads .z-ai-config
+  const ZAI = (await import("z-ai-web-dev-sdk")).default;
+  const zai = await ZAI.create();
+  const completion = await zai.chat.completions.create({
+    messages: messages as Parameters<typeof zai.chat.completions.create>[0]["messages"],
+    temperature: 0.1,
+    max_tokens: 300,
+  });
+  return completion.choices?.[0]?.message?.content?.trim() ?? "";
+}
+
 export async function moderateMessage(
   body: string,
   opts: { aiEnabled: boolean }
@@ -140,20 +177,13 @@ export async function moderateMessage(
   }
 
   try {
-    const ZAI = (await import("z-ai-web-dev-sdk")).default;
-    const zai = await ZAI.create();
-    const completion = await zai.chat.completions.create({
-      messages: [
-        { role: "system", content: SYSTEM_PROMPT },
-        {
-          role: "user",
-          content: `Message à classifier:\n"""\n${body.slice(0, 1500)}\n"""`,
-        },
-      ],
-      temperature: 0.1,
-      max_tokens: 300,
-    });
-    const text = completion.choices?.[0]?.message?.content?.trim() ?? "";
+    const text = await aiChat([
+      { role: "system", content: SYSTEM_PROMPT },
+      {
+        role: "user",
+        content: `Message à classifier:\n"""\n${body.slice(0, 1500)}\n"""`,
+      },
+    ]);
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
       return {
