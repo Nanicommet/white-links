@@ -30,28 +30,26 @@ export async function GET() {
     });
 
     const countsByCategory = round
-      ? {
-          A: await db.registration.count({ where: { roundId: round.id, status: "ACTIVE", category: "A" } }),
-          B: await db.registration.count({ where: { roundId: round.id, status: "ACTIVE", category: "B" } }),
-        }
+      ? await Promise.all([
+          db.registration.count({ where: { roundId: round.id, status: "ACTIVE", category: "A" } }),
+          db.registration.count({ where: { roundId: round.id, status: "ACTIVE", category: "B" } }),
+        ]).then(([A, B]) => ({ A, B }))
       : { A: 0, B: 0 };
 
-    const unverified = round
-      ? await db.registration.count({ where: { roundId: round.id, status: "ACTIVE", verificationStatus: "PENDING" } })
-      : 0;
-    const pendingModeration = round
-      ? await db.message.count({ where: { roundId: round.id, modStatus: { in: ["PENDING", "REVIEW"] } } })
-      : 0;
-    const openReports = round
-      ? await db.moderationReport.count({ where: { roundId: round.id, status: "OPEN" } })
-      : 0;
-    const failedDeliveries = round
-      ? await db.message.count({ where: { roundId: round.id, deliveryStatus: "FAILED" } })
-      : 0;
-    const openResetRequests = await db.passwordResetRequest.count({ where: { status: "OPEN" } });
-    const totalMembers = await db.user.count();
-    const totalMessages = await db.message.count();
-    const revealedRounds = await db.round.count({ where: { status: { in: ["revealed", "archived"] } } });
+    // PERFORMANCE: all dashboard counters are independent — one parallel
+    // batch instead of ten sequential round-trips (polled every 15 s).
+    const [unverified, pendingModeration, openReports, failedDeliveries, openResetRequests, totalMembers, totalMessages, revealedRounds] = round
+      ? await Promise.all([
+          db.registration.count({ where: { roundId: round.id, status: "ACTIVE", verificationStatus: "PENDING" } }),
+          db.message.count({ where: { roundId: round.id, modStatus: { in: ["PENDING", "REVIEW"] } } }),
+          db.moderationReport.count({ where: { roundId: round.id, status: "OPEN" } }),
+          db.message.count({ where: { roundId: round.id, deliveryStatus: "FAILED" } }),
+          db.passwordResetRequest.count({ where: { status: "OPEN" } }),
+          db.user.count(),
+          db.message.count(),
+          db.round.count({ where: { status: { in: ["revealed", "archived"] } } }),
+        ])
+      : [0, 0, 0, 0, 0, await db.user.count(), 0, 0];
 
     const wa = whatsappStatus(settings.whatsappTestMode);
     void now;
