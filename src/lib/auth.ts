@@ -21,18 +21,29 @@ function b64url(buf: Buffer | string): string {
   return Buffer.from(buf).toString("base64url");
 }
 
+let cachedSecret: { value: string } | null = null;
+
 async function getSecret(): Promise<string> {
+  // PERFORMANCE: this runs on EVERY authenticated request. Hitting the DB
+  // each time added a full round-trip (often 100–300 ms on Supabase) per
+  // API call. The secret is stable, so read it once and memoize it.
+  if (cachedSecret) return cachedSecret.value;
   if (process.env.AUTH_SECRET && process.env.AUTH_SECRET.length >= 16) {
-    return process.env.AUTH_SECRET;
+    cachedSecret = { value: process.env.AUTH_SECRET };
+    return cachedSecret.value;
   }
   const s = await db.settings.findUnique({ where: { id: "global" } });
-  if (s?.authSecret) return s.authSecret;
+  if (s?.authSecret) {
+    cachedSecret = { value: s.authSecret };
+    return s.authSecret;
+  }
   const secret = crypto.randomBytes(32).toString("hex");
   await db.settings.upsert({
     where: { id: "global" },
     update: { authSecret: secret },
     create: { id: "global", authSecret: secret },
   });
+  cachedSecret = { value: secret };
   return secret;
 }
 

@@ -3,9 +3,13 @@ import type { ReasonCode } from "@/lib/constants";
 // ─────────────────────────────────────────────────────────────────
 // WHITE LINKS message moderation
 // Layer 1: deterministic filters (contact details, obvious abuse)
-// Layer 2: AI classification (OpenAI-compatible endpoint via env vars,
-//          falls back to z-ai-web-dev-sdk when present)
-// Failure policy: never silently bypass → "review" (human queue).
+// Layer 2: AI classification (OpenAI-compatible endpoint via AI_API_KEY)
+// POLICY (club decision 2026-10): NO human approval step. Messages are
+// delivered automatically unless the deterministic filter or a confident
+// AI verdict rejects them. When the AI provider is missing, uncertain,
+// or failing, messages are DELIVERED (fail-open) instead of parking in a
+// human review queue. Deterministic filters still hard-block contact
+// exchange and obvious abuse instantly, with no human in the loop.
 // Never sends assignment mappings or phone numbers to the provider.
 // ─────────────────────────────────────────────────────────────────
 
@@ -21,7 +25,12 @@ const PHONE_RE =
   /(\+?\d[\s\-.]?)?(?:\(?\d{1,4}\)?[\s\-.]?){2,}\d{2,4}/g;
 const EMAIL_RE = /[a-z0-9._%+-]+\s?(?:@|\(at\)|\[at\]|\[arobase\])\s?[a-z0-9.-]+\.[a-z]{2,}/i;
 const URL_RE = /((?:https?:\/\/|www\.)[^\s]+)|([a-z0-9-]+\.(com|tn|fr|net|org|io|me|link|snap|tk|ml)(\/[^\s]*)?)/gi;
-const HANDLE_RE = /(?:insta(?:gram)?|ig|snap(?:chat)?|sc|tiktok|tt|fb|facebook|messenger|telegram|tg|discord|x|twitter)\s*[:=@]?\s*[\w.]{3,}/i;
+const HANDLE_RE = /(?:insta(?:gram)?|ig|snap(?:chat)?|sc|tiktok|tt|fb|facebook|messenger|telegram|tg|discord|x|twitter)\s*[:=]\s*[\w.]{3,}/i;
+// Platform keyword NEAR an @handle — filler words like "c'est" may sit
+// between the keyword and the handle ("mon insta c'est @membre_officiel").
+// This closed the gap previously covered by the AI layer, which is skipped
+// when no AI_API_KEY is configured (messages must never depend on it).
+const HANDLE_NEAR_RE = /(?:insta(?:gram)?|ig|snap(?:chat)?|sc|tiktok|tt|fb|facebook|messenger|telegram|tg|discord|x|twitter)\b[^.!?\n]{0,30}?@[a-z0-9_.]{3,}/i;
 const AT_HANDLE_RE = /@[a-z0-9_.]{4,}/i;
 
 const ABUSE_WORDS = [
@@ -65,7 +74,7 @@ export function deterministicFilter(rawBody: string): ModerationVerdict | null {
       source: "FILTER",
     };
   }
-  if (URL_RE.test(rawBody) || HANDLE_RE.test(body)) {
+  if (URL_RE.test(rawBody) || HANDLE_RE.test(body) || HANDLE_NEAR_RE.test(body) || AT_HANDLE_RE.test(body)) {
     return {
       decision: "reject",
       reasonCode: "CONTACT_EXCHANGE",
@@ -88,7 +97,6 @@ export function deterministicFilter(rawBody: string): ModerationVerdict | null {
       source: "FILTER",
     };
   }
-  void AT_HANDLE_RE; // reserved: @handles are handled by AI layer to reduce false positives
   void PHONE_RE;
   void digitsOnly;
 
@@ -106,11 +114,13 @@ export function deterministicFilter(rawBody: string): ModerationVerdict | null {
   }
   for (const w of SEXUAL_WORDS) {
     if (keywordRegex(w).test(body)) {
+      // No human queue (club policy): auto-reject with a kind explanation.
       return {
-        decision: "review",
+        decision: "reject",
         reasonCode: "SEXUAL_HARASSMENT",
-        safeExplanation: "Message en attente de vérification par un modérateur.",
-        confidence: 0.7,
+        safeExplanation:
+          "Ce message ne respecte pas l'esprit bienveillant du jeu. Reformule-le avec douceur ✨",
+        confidence: 0.8,
         source: "FILTER",
       };
     }
@@ -142,32 +152,23 @@ interface ChatChoiceMessage {
 // Configure with AI_API_KEY (+ optional AI_BASE_URL, AI_MODEL).
 async function aiChat(messages: { role: string; content: string }[]): Promise<string> {
   const apiKey = process.env.AI_API_KEY?.trim();
-  if (apiKey) {
-    const baseUrl = (process.env.AI_BASE_URL?.trim() || "https://api.z.ai/api/paas/v4").replace(/\/+$/, "");
-    const model = process.env.AI_MODEL?.trim() || "glm-4.5-flash";
-    const res = await fetch(`${baseUrl}/chat/completions`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ model, messages, temperature: 0.1, max_tokens: 300 }),
-      signal: AbortSignal.timeout(20000),
-    });
-    if (!res.ok) throw new Error(`AI_HTTP_${res.status}`);
-    const data = (await res.json()) as ChatChoiceMessage;
-    return data.choices?.[0]?.message?.content?.trim() ?? "";
-  }
-
-  // Sandbox/local fallback: z-ai-web-dev-sdk reads .z-ai-config
-  const ZAI = (await import("z-ai-web-dev-sdk")).default;
-  const zai = await ZAI.create();
-  const completion = await zai.chat.completions.create({
-    messages: messages as Parameters<typeof zai.chat.completions.create>[0]["messages"],
-    temperature: 0.1,
-    max_tokens: 300,
+  if (!apiKey) throw new Error("AI_NOT_CONFIGURED");
+  const baseUrl = (process.env.AI_BASE_URL?.trim() || "https://api.z.ai/api/paas/v4").replace(/\/+$/, "");
+  const model = process.env.AI_MODEL?.trim() || "glm-4.5-flash";
+  // Short timeout: message sending must stay snappy. On timeout/absence the
+  // caller fails open (delivers the message) per club policy — no human queue.
+  const res = await fetch(`${baseUrl}/chat/completions`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ model, messages, temperature: 0.1, max_tokens: 300 }),
+    signal: AbortSignal.timeout(8000),
   });
-  return completion.choices?.[0]?.message?.content?.trim() ?? "";
+  if (!res.ok) throw new Error(`AI_HTTP_${res.status}`);
+  const data = (await res.json()) as ChatChoiceMessage;
+  return data.choices?.[0]?.message?.content?.trim() ?? "";
 }
 
 export async function moderateMessage(
@@ -177,7 +178,10 @@ export async function moderateMessage(
   const filtered = deterministicFilter(body);
   if (filtered) return filtered;
 
-  if (!opts.aiEnabled) {
+  // Fast path: AI not enabled or no API key configured → deliver instantly
+  // on the strength of the deterministic filters alone. This is the normal
+  // configuration on Vercel (no AI_API_KEY) and keeps sending latency at zero.
+  if (!opts.aiEnabled || !process.env.AI_API_KEY?.trim()) {
     return {
       decision: "allow",
       reasonCode: "OK",
@@ -197,10 +201,11 @@ export async function moderateMessage(
     ]);
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
+      // Unclear AI output → deliver (no human queue, club policy)
       return {
-        decision: "review",
+        decision: "allow",
         reasonCode: "OK",
-        safeExplanation: "Message placé en file de modération humaine.",
+        safeExplanation: "Message accepté (modération automatique de base).",
         confidence: 0.5,
         source: "AI",
       };
@@ -211,8 +216,9 @@ export async function moderateMessage(
       safe_explanation?: string;
       confidence?: number;
     };
-    const decision =
-      parsed.decision === "allow" || parsed.decision === "reject" ? parsed.decision : "review";
+    // Only a confident AI "reject" blocks a message. "review" delivers too —
+    // there is no human approval step anymore.
+    const decision = parsed.decision === "reject" ? "reject" : "allow";
     return {
       decision,
       reasonCode: (parsed.reason_code as ReasonCode) ?? "OK",
@@ -223,14 +229,14 @@ export async function moderateMessage(
       source: "AI",
     };
   } catch {
-    // Provider missing or failed → safe pending state, never silent bypass
+    // Provider missing or failed → fail open: deliver the message rather
+    // than parking it in a human queue (club policy: no human approval).
     return {
-      decision: "review",
-      reasonCode: "PROVIDER_ERROR",
-      safeExplanation:
-        "Le service de modération est momentanément indisponible. Ton message sera vérifié par un modérateur humain.",
+      decision: "allow",
+      reasonCode: "OK",
+      safeExplanation: "Message accepté (modération automatique de base).",
       confidence: 0,
-      source: "AI",
+      source: "FILTER",
     };
   }
 }

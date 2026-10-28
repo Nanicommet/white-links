@@ -62,7 +62,18 @@ export async function sendMemberMessage(ctx: SendContext): Promise<SendOutcome> 
   const body = ctx.body.trim();
   if (!body) return { ok: false, error: "EMPTY", message: "Le message est vide." };
 
-  const settings = await getSettings();
+  // PERFORMANCE: settings (cached), membership, rate-limit counter and the
+  // sender lookup are independent — one parallel batch keeps sending snappy.
+  const hourAgo = new Date(Date.now() - 3600 * 1000);
+  const [settings, membership, recent, sender] = await Promise.all([
+    getSettings(),
+    currentActiveMembership(ctx.senderId),
+    db.message.count({
+      where: { senderId: ctx.senderId, createdAt: { gte: hourAgo }, modStatus: { in: ["ALLOWED", "PENDING", "REVIEW"] } },
+    }),
+    db.user.findUnique({ where: { id: ctx.senderId } }),
+  ]);
+
   if (body.length > settings.messageMaxLength) {
     return {
       ok: false,
@@ -71,7 +82,6 @@ export async function sendMemberMessage(ctx: SendContext): Promise<SendOutcome> 
     };
   }
 
-  const membership = await currentActiveMembership(ctx.senderId);
   if (!membership) {
     return {
       ok: false,
@@ -79,19 +89,14 @@ export async function sendMemberMessage(ctx: SendContext): Promise<SendOutcome> 
       message: "Tu n'es pas éligible à la messagerie pour cette manche.",
     };
   }
-  const { round, reg } = membership;
+  const { round } = membership;
 
   // Flood / rate limiting (server-side)
-  const hourAgo = new Date(Date.now() - 3600 * 1000);
-  const recent = await db.message.count({
-    where: { senderId: ctx.senderId, createdAt: { gte: hourAgo }, modStatus: { in: ["ALLOWED", "PENDING", "REVIEW"] } },
-  });
   if (recent >= settings.messageRatePerHour) {
     return { ok: false, error: "RATE_LIMITED", message: "Trop de messages envoyés cette heure-ci. Réessaie plus tard." };
   }
 
   // Restricted participant?
-  const sender = await db.user.findUnique({ where: { id: ctx.senderId } });
   if (sender?.restrictedUntil && sender.restrictedUntil > new Date()) {
     return {
       ok: false,
@@ -106,9 +111,10 @@ export async function sendMemberMessage(ctx: SendContext): Promise<SendOutcome> 
   }
 
   // ── Moderation pipeline ──
+  // Club policy: no human approval. Deterministic filters + (optional) AI
+  // either allow or reject — messages are never parked in a review queue.
   const verdict = await moderateMessage(body, { aiEnabled: settings.aiModerationEnabled });
-  const modStatus =
-    verdict.decision === "allow" ? "ALLOWED" : verdict.decision === "reject" ? "REJECTED" : "REVIEW";
+  const modStatus = verdict.decision === "reject" ? "REJECTED" : "ALLOWED";
 
   const message = await db.message.create({
     data: {
@@ -131,13 +137,13 @@ export async function sendMemberMessage(ctx: SendContext): Promise<SendOutcome> 
       userId: ctx.senderId,
       roundId: round.id,
       type: "MODERATION_REJECTED",
-      title: modStatus === "REVIEW" ? "Message en vérification 🔍" : "Message non transmis 🚫",
+      title: "Message non transmis 🚫",
       body: verdict.safeExplanation,
       dedupeKey: `mod:${message.id}`,
     });
     return {
-      ok: modStatus === "REVIEW",
-      error: modStatus === "REJECTED" ? "REJECTED_BY_MODERATION" : undefined,
+      ok: false,
+      error: "REJECTED_BY_MODERATION",
       message: verdict.safeExplanation,
       modStatus,
       modExplanation: verdict.safeExplanation,
@@ -257,9 +263,6 @@ export async function handleWhatsAppInbound(fromPhoneRaw: string, text: string, 
   }
   if (!outcome.ok) {
     return { handled: true, reply: `⚠️ ${outcome.message ?? "Envoi impossible pour le moment."}` };
-  }
-  if (outcome.modStatus === "REVIEW") {
-    return { handled: true, reply: "🔍 Ton message est en attente de vérification par un modérateur du club." };
   }
   const wa = whatsappStatus((await getSettings()).whatsappTestMode);
   if (outcome.deliveryStatus === "NOT_CONFIGURED") {

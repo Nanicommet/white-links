@@ -7,7 +7,14 @@ import { VALID_TRANSITIONS, type RoundStatus } from "@/lib/constants";
 
 // ── Settings singleton ──────────────────────────────────────────
 
-export async function getSettings() {
+// PERFORMANCE: settings are read on nearly every request (messaging, auth,
+// dashboard, admin…). A full DB round-trip per read — often several times
+// per request — dominated latency on remote Postgres (Supabase). Cache the
+// row in memory for a short TTL; admin updates invalidate it immediately.
+const SETTINGS_TTL_MS = 30_000;
+let settingsCache: { value: Awaited<ReturnType<typeof loadSettings>>; at: number } | null = null;
+
+async function loadSettings() {
   let s = await db.settings.findUnique({ where: { id: "global" } });
   if (!s) {
     // Race-safe creation: another worker may have created it concurrently
@@ -16,9 +23,41 @@ export async function getSettings() {
   return s;
 }
 
+export async function getSettings() {
+  const now = Date.now();
+  if (settingsCache && now - settingsCache.at < SETTINGS_TTL_MS) return settingsCache.value;
+  const value = await loadSettings();
+  settingsCache = { value, at: now };
+  return value;
+}
+
+/** Call after any direct write to the Settings row so changes apply instantly. */
+export function invalidateSettingsCache(): void {
+  settingsCache = null;
+}
+
 // ── Lifecycle tick: idempotent automatic transitions ─────────────
 
+// PERFORMANCE: tick() scans rounds and fires reminders — it does not need to
+// run on every page view. Previously each dashboard/landing/admin load paid
+// 3+ sequential queries for it. Throttle to one run per minute per instance;
+// concurrent callers share the same in-flight promise.
+const TICK_INTERVAL_MS = 60_000;
+let lastTickAt = 0;
+let tickInFlight: Promise<{ transitions: string[]; reminders: number }> | null = null;
+
 export async function tick(): Promise<{ transitions: string[]; reminders: number }> {
+  const now = Date.now();
+  if (tickInFlight) return tickInFlight;
+  if (now - lastTickAt < TICK_INTERVAL_MS) return { transitions: [], reminders: 0 };
+  lastTickAt = now;
+  tickInFlight = runTick().finally(() => {
+    tickInFlight = null;
+  });
+  return tickInFlight;
+}
+
+async function runTick(): Promise<{ transitions: string[]; reminders: number }> {
   const settings = await getSettings();
   const transitions: string[] = [];
   let reminders = 0;
