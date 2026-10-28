@@ -156,6 +156,44 @@ Send `1 hello, hope you're doing great!` from a verified WhatsApp account to the
 
 ---
 
+## STEP 5-bis — (Alternative) Use WhatsApp through Twilio instead 🟣
+
+Already have a **Twilio** account with a WhatsApp number? Skip Meta entirely — the app supports both providers. Twilio decides via **one extra variable**: `WHATSAPP_PROVIDER`.
+
+### 5b.1 Get the three values from Twilio
+Twilio Console (console.twilio.com) → the **Account Info** panel on the home page:
+
+| Vercel variable | Value |
+|---|---|
+| `WHATSAPP_PROVIDER` | `twilio` |
+| `TWILIO_ACCOUNT_SID` | starts with `AC…` |
+| `TWILIO_AUTH_TOKEN` | click the 👁 eye icon → copy |
+| `TWILIO_WHATSAPP_FROM` | `whatsapp:+14155238886` (this is Twilio's **Sandbox** number) or your approved Twilio WhatsApp number |
+| `TWILIO_STATUS_CALLBACK_URL` *(optional)* | `https://your-app.vercel.app/api/webhooks/whatsapp-twilio` — gives you delivered/failed statuses in the admin panel |
+
+Vercel → Settings → Environment Variables → add them → **Redeploy**.
+
+### 5b.2 Point Twilio at your app (webhook)
+- **Sandbox:** Twilio Console → **Messaging → Try it out → Send a WhatsApp message → Sandbox settings** → *"When a message comes in"* → `https://your-app.vercel.app/api/webhooks/whatsapp-twilio` → method **POST** → Save.
+- **Production number:** Messaging → **Senders → WhatsApp senders** → your number → *Callback configuration* → same URL, method POST.
+
+The app verifies Twilio's `X-Twilio-Signature` automatically (using your Auth Token) — nothing to invent, no verify token needed with Twilio.
+
+### 5b.3 Sandbox rules you must know 📌
+- **Everyone must "join" first:** each member sends the sandbox's join code (shown in the Twilio console, e.g. `join orange-cat`) **once** from their WhatsApp. Until then Twilio refuses to deliver anything to them.
+- **24-hour window:** your app can only send free-form WhatsApp replies within 24 h of the member's last message. Outside that window Twilio rejects business-initiated texts — the game keeps working (the web inbox is always there), and the admin panel shows the honest FAILED status. Fixed pre-approved templates (your `contentSid` example) are a Twilio *Content Template* — you can create one in Twilio → **Messaging → Content Template Editor** later if you want out-of-window notifications.
+
+### 5b.4 Test it
+1. Vercel → set `WHATSAPP_TEST_MODE` back to `true` first.
+2. Open `https://your-app.vercel.app/api/webhooks/whatsapp-twilio` in a browser → should say `{"provider":"twilio","configured":true,…}`.
+3. From a **joined** WhatsApp account, send `1` to the sandbox number → the app replies with the WHITE LINKS menu.
+4. Admin panel → **Intégrations** → WhatsApp row now reads **"WhatsApp via Twilio"** → use the *Test* button.
+5. All good? Set `WHATSAPP_TEST_MODE=false` → Redeploy → real sends are live.
+
+> 🔐 **Treat the Auth Token like a password.** If it was ever pasted into a chat, GitHub issue or screenshot: Twilio Console → regenerate it, then update `TWILIO_AUTH_TOKEN` in Vercel.
+
+---
+
 ## STEP 6 — The automatic clock (cron) ⏰
 
 Round phases (closing registrations, opening guesses, revealing…) switch **automatically** based on dates, but something must "tick" the app. Vercel already pings it **once a day** (configured in `vercel.json`). For a smooth game you want a tick every 15 minutes — free with [cron-job.org](https://cron-job.org):

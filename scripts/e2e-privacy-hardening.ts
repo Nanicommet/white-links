@@ -135,20 +135,23 @@ async function main() {
   assert(!!own && own.modStatus === "REJECTED" && !!own.modExplanation, "sender still sees own REJECTED message with explanation");
 
   // ── allowed message DOES reach the recipient ──
-  // NOTE: marker uses base36 (never 6+ consecutive digits) so the
-  // deterministic phone-number filter does not reject the marker itself.
-  const marker = RUN.toString(36);
+  // NOTE: the body must be natural French with NO unique token/marker.
+  // The AI moderation layer correctly treats handle-looking strings
+  // (lowercase token + trailing digits, e.g. base36 RUN markers) as
+  // identity hints, so uniqueness is asserted by message COUNT instead.
   const allowed = await giver.call("/api/me/messages", {
     method: "POST",
-    body: { destination: "friend", body: `Bonjour ! petit message de bienvenue ${marker}` },
+    body: {
+      destination: "friend",
+      body: "Bonjour ! Petit message de bienvenue : j'espère que tu passes une belle semaine, plein de bonnes choses pour toi ✨",
+    },
   });
   assert(allowed.status === 200, "friendly message accepted");
   const recipientInbox2 = (await recipient.call("/api/me/inbox")).data as {
     threads: { friend: { messages: { body: string }[] }; admirer: { messages: unknown[] } };
   };
-  const gotIt = (recipientInbox2.threads.friend.messages.some((m) => m.body.includes(marker))
-    || recipientInbox2.threads.admirer.messages.length > 0);
-  assert(gotIt, "allowed message reaches the recipient inbox");
+  const total2 = recipientInbox2.threads.friend.messages.length + recipientInbox2.threads.admirer.messages.length;
+  assert(total2 > recipientMsgCount, "allowed message reaches the recipient inbox");
 
   // ── FIX 3: admin password reset kills the old session immediately ──
   const meBefore = await giver.call("/api/auth/me");

@@ -1,7 +1,7 @@
 import { db } from "@/lib/db";
 import { requireAdmin, jsonError } from "@/lib/auth";
 import { audit } from "@/lib/audit";
-import { whatsappStatus, sendWhatsAppText } from "@/lib/whatsapp";
+import { whatsappStatus, whatsappProvider, sendWhatsAppText } from "@/lib/whatsapp";
 import { getSettings } from "@/lib/lifecycle";
 
 export const runtime = "nodejs";
@@ -39,7 +39,9 @@ export async function GET() {
         },
         {
           id: "whatsapp",
-          name: "WhatsApp Business Platform (Cloud API)",
+          name: whatsappProvider() === "twilio"
+            ? "WhatsApp via Twilio"
+            : "WhatsApp Business Platform (Cloud API)",
           status: wa.configured ? "OPERATIONAL" : "NOT_CONFIGURED",
           detail: wa.configured
             ? wa.testMode
@@ -47,14 +49,25 @@ export async function GET() {
               : "Configuré et actif."
             : "Configuration requise.",
           missing: wa.missing,
-          env: [
-            "WHATSAPP_ACCESS_TOKEN",
-            "WHATSAPP_PHONE_NUMBER_ID",
-            "WHATSAPP_VERIFY_TOKEN",
-            "WHATSAPP_APP_SECRET",
-            "WHATSAPP_API_VERSION (optionnel)",
-          ],
-          webhookUrl: "/api/webhooks/whatsapp (GET verify + POST events)",
+          env: whatsappProvider() === "twilio"
+            ? [
+                "WHATSAPP_PROVIDER=twilio",
+                "TWILIO_ACCOUNT_SID",
+                "TWILIO_AUTH_TOKEN",
+                "TWILIO_WHATSAPP_FROM",
+                "TWILIO_STATUS_CALLBACK_URL (optionnel)",
+                "WHATSAPP_TEST_MODE",
+              ]
+            : [
+                "WHATSAPP_ACCESS_TOKEN",
+                "WHATSAPP_PHONE_NUMBER_ID",
+                "WHATSAPP_VERIFY_TOKEN",
+                "WHATSAPP_APP_SECRET",
+                "WHATSAPP_API_VERSION (optionnel)",
+              ],
+          webhookUrl: whatsappProvider() === "twilio"
+            ? "/api/webhooks/whatsapp-twilio (POST — signature vérifiée)"
+            : "/api/webhooks/whatsapp (GET verify + POST events)",
         },
         {
           id: "jobs",
