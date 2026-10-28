@@ -1,7 +1,7 @@
 import { db } from "@/lib/db";
 import { requireAdmin, jsonError } from "@/lib/auth";
 import { audit } from "@/lib/audit";
-import { getSettings } from "@/lib/lifecycle";
+import { getSettings, invalidateSettingsCache } from "@/lib/lifecycle";
 import { z } from "zod";
 
 export const runtime = "nodejs";
@@ -46,6 +46,7 @@ export async function PUT(req: Request) {
       update: parsed.data,
       create: { id: "global", ...parsed.data },
     });
+    invalidateSettingsCache(); // apply changes immediately (30s cache bypass)
     await audit(admin.id, admin.displayName, "SETTINGS_UPDATED", null, parsed.data);
     return Response.json({ ok: true });
   } catch (e) {
