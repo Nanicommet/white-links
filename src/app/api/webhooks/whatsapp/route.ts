@@ -1,7 +1,9 @@
 import { NextRequest } from "next/server";
+import crypto from "crypto";
 import { ensureBootstrap } from "@/lib/bootstrap";
 import { verifyWebhookSignature } from "@/lib/whatsapp";
 import { handleWhatsAppInbound } from "@/lib/messaging";
+import { getSettings } from "@/lib/lifecycle";
 import { audit } from "@/lib/audit";
 
 export const runtime = "nodejs";
@@ -16,7 +18,10 @@ export async function GET(req: NextRequest) {
   if (!expected) {
     return new Response("WhatsApp webhook not configured: set WHATSAPP_VERIFY_TOKEN", { status: 503 });
   }
-  if (mode === "subscribe" && token === expected && challenge) {
+  // Timing-safe token comparison
+  const a = Buffer.from(token ?? "");
+  const b = Buffer.from(expected);
+  if (mode === "subscribe" && a.length === b.length && crypto.timingSafeEqual(a, b) && challenge) {
     return new Response(challenge, { status: 200 });
   }
   return new Response("Forbidden", { status: 403 });
@@ -52,9 +57,12 @@ export async function POST(req: NextRequest) {
           try {
             const result = await handleWhatsAppInbound(msg.from, text, msg.id);
             if (result.handled && result.reply) {
-              // Reply via provider (sendWhatsAppText imported lazily to avoid circular deps)
+              // Reply via provider (sendWhatsAppText imported lazily to avoid circular deps).
+              // Test mode comes from the admin's DB setting so the Settings
+              // toggle also governs inbound auto-replies, not just forwards.
               const { sendWhatsAppText } = await import("@/lib/whatsapp");
-              await sendWhatsAppText(msg.from, result.reply);
+              const settings = await getSettings();
+              await sendWhatsAppText(msg.from, result.reply, { testMode: settings.whatsappTestMode });
             }
           } catch {
             await audit(null, "system", "WHATSAPP_INBOUND_ERROR", msg.id, null);

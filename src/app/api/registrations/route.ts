@@ -5,6 +5,7 @@ import { normalizePhone } from "@/lib/phone";
 import { notify } from "@/lib/notify";
 import { audit } from "@/lib/audit";
 import { tick } from "@/lib/lifecycle";
+import { rateLimit, clientIp } from "@/lib/ratelimit";
 import { z } from "zod";
 
 export const runtime = "nodejs";
@@ -25,6 +26,10 @@ export async function POST(req: Request) {
   await ensureBootstrap();
   await tick();
   try {
+    // Anti-spam: 10 registration attempts per IP per hour
+    if (!rateLimit(`reg:${clientIp(req)}`, 10, 3600 * 1000)) {
+      return jsonError("RATE_LIMITED", 429);
+    }
     const parsed = schema.safeParse(await req.json());
     if (!parsed.success) {
       const fieldErrors: Record<string, string> = {};
@@ -84,6 +89,13 @@ export async function POST(req: Request) {
         where: { email: data.email.toLowerCase() },
       });
       if (existingByEmail) {
+        // SECURITY: an account can only be reused (and updated) by someone
+        // who proves ownership with its current password. Otherwise this
+        // endpoint would hand out a session for any known email.
+        const { verifyPassword } = await import("@/lib/phone");
+        if (!verifyPassword(data.password, existingByEmail.passwordHash)) {
+          return jsonError("EMAIL_TAKEN", 409);
+        }
         userId = existingByEmail.id;
         const existingReg = await db.registration.findUnique({
           where: { roundId_userId: { roundId: round.id, userId } },

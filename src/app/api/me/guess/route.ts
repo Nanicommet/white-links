@@ -31,10 +31,14 @@ export async function GET() {
       return Response.json({ open: false, reason: "REVEALED", round: { id: round.id, status: round.status } });
     }
 
-    const participants = await db.registration.findMany({
-      where: { roundId: round.id, status: "ACTIVE", verificationStatus: "APPROVED" },
-      include: { user: { select: { id: true, displayName: true } } },
-    });
+    // PRIVACY: the participant roster is only needed (and only returned)
+    // while the guessing window is actually open — not before.
+    const participants = isOpen
+      ? await db.registration.findMany({
+          where: { roundId: round.id, status: "ACTIVE", verificationStatus: "APPROVED" },
+          include: { user: { select: { id: true, displayName: true } } },
+        })
+      : [];
 
     const myGuess = await db.guess.findUnique({
       where: { roundId_guesserId: { roundId: round.id, guesserId: user.id } },

@@ -78,10 +78,12 @@ export function Register({ onDone }: { onDone: () => void }) {
         setFieldErrors(fe);
         const map: Record<string, string> = {
           ALREADY_REGISTERED: t("register.already"),
+          EMAIL_TAKEN: t("register.emailTaken"),
           REGISTRATION_CLOSED: t("register.closed"),
           NO_OPEN_ROUND: t("register.noRound"),
           DUPLICATE_PHONE: t("register.already"),
           WITHDRAWN_BEFORE_DEADLINE: t("register.already"),
+          RATE_LIMITED: t("common.error"),
         };
         setGlobalError(map[e.code] ?? `${t("common.error")} (${e.code})`);
       } else {

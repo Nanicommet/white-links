@@ -124,7 +124,8 @@ export async function matchingDiagnostics(roundId: string) {
   const eligible = await eligibleParticipants(roundId);
   const pending = await db.registration.findMany({
     where: { roundId, status: "ACTIVE", verificationStatus: "PENDING" },
-    select: { id: true, phone: true, category: true },
+    // PRIVACY: only the count is used — never select phone/PII here.
+    select: { id: true, category: true },
   });
   const aCount = eligible.filter((r) => r.category === "A").length;
   const bCount = eligible.filter((r) => r.category === "B").length;

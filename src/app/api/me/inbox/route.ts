@@ -29,14 +29,19 @@ export async function GET() {
 
     async function loadThread(otherId: string | undefined | null) {
       if (!otherId) return [];
+      // PRIVACY/SAFETY: the two directions have different visibility rules.
+      //  • My own messages: all moderation states (I may see my REJECTED
+      //    messages with the moderator's explanation).
+      //  • Incoming messages: ONLY "ALLOWED" — rejected or pending-review
+      //    messages must never reach the recipient, even with a masked
+      //    status label (this closed a moderation bypass).
       const msgs = await db.message.findMany({
         where: {
           roundId,
           OR: [
             { senderId: user.id, recipientId: otherId },
-            { senderId: otherId, recipientId: user.id },
+            { senderId: otherId, recipientId: user.id, modStatus: "ALLOWED" },
           ],
-          modStatus: { in: ["ALLOWED", "REJECTED", "REVIEW"] },
         },
         orderBy: { createdAt: "asc" },
         take: 200,

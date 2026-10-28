@@ -18,9 +18,9 @@ export async function GET() {
       integrations: [
         {
           id: "database",
-          name: "Base de données (SQLite + Prisma)",
+          name: "Base de données (PostgreSQL Supabase + Prisma)",
           status: "OPERATIONAL",
-          detail: "Base locale opérationnelle.",
+          detail: "Connexion Supabase transaction pooler (PgBouncer) opérationnelle.",
         },
         {
           id: "auth",
@@ -90,7 +90,7 @@ export async function POST(req: Request) {
     if (!wa.configured) {
       return Response.json({ ok: false, status: "NOT_CONFIGURED", missing: wa.missing });
     }
-    const result = await sendWhatsAppText(phone ?? "+21600000000", "🧪 Message de test WHITE LINKS — l'intégration WhatsApp fonctionne.");
+    const result = await sendWhatsAppText(phone ?? "+21600000000", "🧪 Message de test WHITE LINKS — l'intégration WhatsApp fonctionne.", { testMode: settings.whatsappTestMode });
     await audit(admin.id, admin.displayName, "WHATSAPP_TEST", null, { ok: result.ok, simulated: result.simulated ?? false });
     return Response.json({ ok: result.ok, status: result.ok ? (result.simulated ? "SIMULATED" : "SENT") : "FAILED", error: result.error });
   } catch (e) {

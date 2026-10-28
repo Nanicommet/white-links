@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { requireAdmin, jsonError } from "@/lib/auth";
 import { audit } from "@/lib/audit";
+import crypto from "crypto";
 
 export const runtime = "nodejs";
 
@@ -88,7 +89,7 @@ export async function POST(req: Request) {
       // Priority: best rank wins; equal ranks → secure random draw
       const bestRank = Math.min(...claimants.map((c) => c.rank));
       const top = claimants.filter((c) => c.rank === bestRank);
-      const winner = top.length === 1 ? top[0] : top[Math.floor(Math.random() * top.length)];
+      const winner = top.length === 1 ? top[0] : top[crypto.randomInt(0, top.length)];
       for (const c of claimants) {
         await db.rewardPreference.update({
           where: { id: c.id },

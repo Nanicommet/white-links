@@ -63,5 +63,6 @@ prompt
 /mini-services/
 /examples/
 /.zscripts/
+/tool-results/
 /agent-ctx/
 /worklog.md

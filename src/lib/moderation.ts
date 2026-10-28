@@ -30,7 +30,7 @@ const ABUSE_WORDS = [
   "kill you", "je vais te tuer", "نقتلك", "نضربك", "te casse la figure",
 ];
 
-const SEXUAL_WORDS = ["sexe", "sex", "nud", "nue", "sexy photo", "photo chaude", "jadbit", "جذبت"];
+const SEXUAL_WORDS = ["sexe", "sex", "nue", "nues", "nude", "nudes", "sexy photo", "photo chaude", "jadbit", "جذبت"];
 
 function normalizeForScan(body: string): string {
   // Collapse common obfuscations used to slip contact details through.
@@ -38,6 +38,17 @@ function normalizeForScan(body: string): string {
     .toLowerCase()
     .replace(/[\u200b-\u200f\u2060]/g, "")
     .replace(/\s+/g, " ");
+}
+
+// Whole-word keyword matching with Unicode-aware boundaries.
+// A naive substring match produced false positives on common French words:
+// "bienvenue" and "avenue" both contain "nue" — legitimate welcome messages
+// were being flagged as sexual content and stuck in the review queue.
+// Lookarounds require a non-letter/non-digit on each side of the keyword,
+// which works correctly for Latin scripts AND for Arabic keywords.
+function keywordRegex(word: string): RegExp {
+  const esc = word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(?<![\\p{L}\\p{N}])${esc}(?![\\p{L}\\p{N}])`, "u");
 }
 
 export function deterministicFilter(rawBody: string): ModerationVerdict | null {
@@ -82,7 +93,7 @@ export function deterministicFilter(rawBody: string): ModerationVerdict | null {
   void digitsOnly;
 
   for (const w of ABUSE_WORDS) {
-    if (body.includes(w)) {
+    if (keywordRegex(w).test(body)) {
       return {
         decision: "reject",
         reasonCode: "HARASSMENT",
@@ -94,7 +105,7 @@ export function deterministicFilter(rawBody: string): ModerationVerdict | null {
     }
   }
   for (const w of SEXUAL_WORDS) {
-    if (body.includes(w)) {
+    if (keywordRegex(w).test(body)) {
       return {
         decision: "review",
         reasonCode: "SEXUAL_HARASSMENT",

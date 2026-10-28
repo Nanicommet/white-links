@@ -39,7 +39,11 @@ export interface SendResult {
   error?: string;
 }
 
-export async function sendWhatsAppText(to: string, body: string): Promise<SendResult> {
+export async function sendWhatsAppText(
+  to: string,
+  body: string,
+  opts?: { testMode?: boolean }
+): Promise<SendResult> {
   const token = env("WHATSAPP_ACCESS_TOKEN");
   const phoneId = env("WHATSAPP_PHONE_NUMBER_ID");
   const version = env("WHATSAPP_API_VERSION") ?? "v21.0";
@@ -48,8 +52,11 @@ export async function sendWhatsAppText(to: string, body: string): Promise<SendRe
     return { ok: false, error: "NOT_CONFIGURED" };
   }
 
-  // Test mode validates routing without sending real messages
-  if (process.env.WHATSAPP_TEST_MODE === "true") {
+  // Test mode validates routing without sending real messages.
+  // Priority: explicit setting passed by the caller (the admin's DB toggle)
+  // → falls back to the environment variable for legacy/standalone calls.
+  const testMode = opts?.testMode ?? process.env.WHATSAPP_TEST_MODE === "true";
+  if (testMode) {
     return { ok: true, simulated: true, providerMessageId: `sim.${Date.now()}.${Math.random().toString(36).slice(2, 10)}` };
   }
 

@@ -157,7 +157,7 @@ export async function sendMemberMessage(ctx: SendContext): Promise<SendOutcome> 
     if (!wa.configured) {
       deliveryStatus = "NOT_CONFIGURED";
     } else {
-      const result = await sendWhatsAppText(recipientUser!.phone, wrapped);
+      const result = await sendWhatsAppText(recipientUser!.phone, wrapped, { testMode: settings.whatsappTestMode });
       if (result.ok) {
         deliveryStatus = result.simulated ? "SIMULATED" : "SENT";
         providerMessageId = result.providerMessageId ?? null;

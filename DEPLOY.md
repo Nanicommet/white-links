@@ -185,7 +185,7 @@ Round phases (closing registrations, opening guesses, revealing…) switch **aut
 |---|---|
 | "Application error" on the site | Check Vercel → Deployments → Build Logs. 90 % of the time: typo in `DATABASE_URL`/`DIRECT_URL` |
 | Tables missing / "relation does not exist" | You skipped Step 2.6 — run the migration SQL in Supabase |
-| Admin login fails | The account is created on first server start with your `ADMIN_EMAIL`/`ADMIN_PASSWORD`. Redeploy once after setting them |
+| Admin login fails | The account is created on first server start **only if** `ADMIN_EMAIL` **and** `ADMIN_PASSWORD` are both set in Vercel. Redeploy once after setting them |
 | Webhook verification fails on Meta | The URL must be exactly `https://…/api/webhooks/whatsapp`, and the verify token must match **character for character** |
 | WhatsApp sends don't arrive | Keep `WHATSAPP_TEST_MODE=false` only when a real number is set; recipient must be registered, approved, and have an active assignment |
 | Messages stuck as "En attente" (review) | Normal without `AI_API_KEY` — approve them manually in the Modération tab, or add the key (Step 4) |
@@ -198,3 +198,13 @@ Round phases (closing registrations, opening guesses, revealing…) switch **aut
 - Rotate `ADMIN_PASSWORD` after the first login (you can add more admin accounts by asking a member, then promoting them in the Participants tab).
 - Meta access tokens are powerful — treat them like passwords.
 - The database can be paused/backed up from Supabase → Database → Backups.
+
+### Built-in protections (already active — nothing for you to do)
+
+- **Account-takeover protection**: registering with an email that already has an account requires that account's current password — nobody can take over an account by knowing just the email.
+- **Brute-force brakes**: login is limited per account (10 tries / 15 min) and per IP; the recovery form and registrations are rate-limited too. A successful login resets the counters.
+- **Secure session cookies**: `httpOnly` + `Secure` in production, `SameSite=Lax`, HMAC-signed.
+- **Security headers**: Content-Security-Policy, X-Frame-Options (no other site can embed your app in an iframe), nosniff, HSTS, strict referrer policy.
+- **Privacy by design**: participants never see phones/e-mails of others; the guessing list is only visible while voting is open; message senders are always anonymized; moderation internals stay hidden from recipients; nothing identifying is ever sent to the AI moderator.
+- **No default passwords**: if `ADMIN_EMAIL`/`ADMIN_PASSWORD` are missing, no admin account is created (a warning appears in Vercel logs instead).
+- **WhatsApp webhook**: signature-verified with your App Secret + timing-safe token comparison + duplicate delivery protection.

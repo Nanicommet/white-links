@@ -5,7 +5,17 @@ import { SESSION_COOKIE, SESSION_DAYS } from "@/lib/constants";
 
 // ── Stateless HMAC-signed session tokens (no external JWT dep) ──
 
-type SessionPayload = { uid: string; exp: number; v: number };
+type SessionPayload = { uid: string; exp: number; v: number; pf?: string };
+
+// Password fingerprint bound into every session token. When the password
+// changes (user reset, admin reset, suspected compromise), every previously
+// issued session becomes invalid immediately — stateless tokens can still
+// be revoked, because they carry evidence of the password they were minted
+// with. Old tokens without a fingerprint simply stop verifying (one-time
+// re-login after an upgrade; that is the desired conservative behavior).
+function pwdFingerprint(passwordHash: string): string {
+  return crypto.createHash("sha256").update(`wl-pwd:${passwordHash}`).digest("base64url").slice(0, 22);
+}
 
 function b64url(buf: Buffer | string): string {
   return Buffer.from(buf).toString("base64url");
@@ -30,12 +40,13 @@ function sign(data: string, secret: string): string {
   return crypto.createHmac("sha256", secret).update(data).digest("base64url");
 }
 
-export async function createSessionToken(userId: string): Promise<string> {
+export async function createSessionToken(userId: string, passwordHash: string): Promise<string> {
   const secret = await getSecret();
   const payload: SessionPayload = {
     uid: userId,
     exp: Date.now() + SESSION_DAYS * 24 * 3600 * 1000,
     v: 1,
+    pf: pwdFingerprint(passwordHash),
   };
   const body = b64url(JSON.stringify(payload));
   return `${body}.${sign(body, secret)}`;
@@ -58,13 +69,23 @@ export async function verifySessionToken(token: string): Promise<SessionPayload 
   }
 }
 
-export async function setSessionCookie(userId: string): Promise<void> {
-  const token = await createSessionToken(userId);
+export async function setSessionCookie(userId: string, passwordHash?: string): Promise<void> {
+  let hash = passwordHash;
+  if (!hash) {
+    const u = await db.user.findUnique({
+      where: { id: userId },
+      select: { passwordHash: true },
+    });
+    hash = u?.passwordHash ?? "";
+  }
+  const token = await createSessionToken(userId, hash);
   const store = await cookies();
   store.set(SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: "lax",
-    secure: false, // sandbox preview is served over https proxy; lax cookie works either way
+    // HTTPS-only in production (Vercel). localhost is exempt so local dev
+    // over plain http keeps working.
+    secure: process.env.NODE_ENV === "production",
     path: "/",
     maxAge: SESSION_DAYS * 24 * 3600,
   });
@@ -72,7 +93,13 @@ export async function setSessionCookie(userId: string): Promise<void> {
 
 export async function clearSessionCookie(): Promise<void> {
   const store = await cookies();
-  store.set(SESSION_COOKIE, "", { httpOnly: true, path: "/", maxAge: 0 });
+  store.set(SESSION_COOKIE, "", {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    path: "/",
+    maxAge: 0,
+  });
 }
 
 export type SessionUser = {
@@ -101,9 +128,15 @@ export async function getSessionUser(): Promise<SessionUser | null> {
       role: true,
       phoneVerified: true,
       restrictedUntil: true,
+      passwordHash: true,
     },
   });
-  return user;
+  if (!user) return null;
+  // Session invalidation on password change (see pwdFingerprint above)
+  if (!payload.pf || payload.pf !== pwdFingerprint(user.passwordHash)) return null;
+  const { passwordHash: _passwordHash, ...session } = user;
+  void _passwordHash;
+  return session;
 }
 
 export async function requireUser(): Promise<SessionUser> {

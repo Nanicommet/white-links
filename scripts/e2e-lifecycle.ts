@@ -36,13 +36,16 @@ function assert(cond: boolean, name: string) {
   }
 }
 
-function client() {
+function client(ip = "10.1.0.1") {
   let cookie = "";
   return {
     async call(path: string, opts?: { method?: string; body?: unknown }) {
       const res = await fetch(`${BASE}${path}`, {
         method: opts?.method ?? "GET",
         headers: {
+          // Distinct client IP per simulated user (Vercel overwrites this
+          // header in production, so it is test-scaffolding only).
+          "x-forwarded-for": ip,
           ...(opts?.body !== undefined ? { "Content-Type": "application/json" } : {}),
           ...(cookie ? { cookie } : {}),
         },
@@ -70,7 +73,7 @@ async function main() {
   const admin = client();
   const login = await admin.call("/api/auth/login", {
     method: "POST",
-    body: { email: "admin@whitelineissig.me", password: process.env.ADMIN_PASSWORD ?? "WhiteLinks2026!" },
+    body: { email: "admin@whitelineissig.me", password: process.env.ADMIN_PASSWORD ?? "" },
   });
   assert(login.status === 200, "admin authenticated");
 
@@ -93,7 +96,7 @@ async function main() {
   // ── 2. Register 10 members via the public API ──
   for (let i = 0; i < MEMBERS.length; i++) {
     const m = MEMBERS[i];
-    const c = client();
+    const c = client(`10.1.0.${i + 10}`);
     const reg = await c.call("/api/registrations", {
       method: "POST",
       body: {
@@ -187,7 +190,7 @@ async function main() {
   const senderAssignment = await db.assignment.findFirst({ where: { roundId, giverId: sender!.id } });
   assert(!!senderAssignment, "member 1 has an outgoing assignment");
 
-  const yas = client();
+  const yas = client("10.1.1.1");
   await yas.call("/api/auth/login", { method: "POST", body: { email: MEMBERS[0].email, password: TEST_PASSWORD } });
 
   // 3a. Allowed friendly message
@@ -215,7 +218,7 @@ async function main() {
   // 3f. Recipient replies to admirer — routes to giver, not own recipient (acceptance #13)
   const recipientId = senderAssignment!.recipientId;
   const recipientUser = await db.user.findUnique({ where: { id: recipientId } });
-  const rec = client();
+  const rec = client("10.1.1.2");
   await rec.call("/api/auth/login", { method: "POST", body: { email: recipientUser!.email, password: TEST_PASSWORD } });
   const reply = await rec.call("/api/me/messages", { method: "POST", body: { destination: "admirer", body: "Merci pour ton message, il m'a vraiment fait plaisir aujourd'hui ✨" } });
   assert(reply.status === 200 || reply.status === 422, `reply processed by moderation pipeline (${reply.status})`);

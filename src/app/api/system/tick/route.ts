@@ -1,6 +1,7 @@
 import { ensureBootstrap } from "@/lib/bootstrap";
 import { tick } from "@/lib/lifecycle";
 import { db } from "@/lib/db";
+import { rateLimit, clientIp } from "@/lib/ratelimit";
 
 export const runtime = "nodejs";
 
@@ -20,14 +21,26 @@ async function run() {
   return result;
 }
 
+// Light abuse brake: when CRON_SECRET is unset the endpoint is open by
+// design, but hammering it should not translate into DB/notification load.
+// 30/min per IP is far above any sane cron cadence (typically 1–5/min).
+function throttle(req: Request): boolean {
+  if (process.env.CRON_SECRET?.trim()) return true; // authorized callers bypass
+  return rateLimit(`tick:${clientIp(req)}`, 30, 60 * 1000);
+}
+
 export async function GET(req: Request) {
-  if (!(await cronAuthorized(req))) return Response.json({ error: "UNAUTHORIZED" }, { status: 401 });
+  if (!(await cronAuthorized(req)) || !throttle(req)) {
+    return Response.json({ error: "UNAUTHORIZED" }, { status: 401 });
+  }
   const result = await run();
   return Response.json({ ok: true, ...result });
 }
 
 export async function POST(req: Request) {
-  if (!(await cronAuthorized(req))) return Response.json({ error: "UNAUTHORIZED" }, { status: 401 });
+  if (!(await cronAuthorized(req)) || !throttle(req)) {
+    return Response.json({ error: "UNAUTHORIZED" }, { status: 401 });
+  }
   const result = await run();
   return Response.json({ ok: true, ...result });
 }

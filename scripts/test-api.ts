@@ -17,6 +17,8 @@ function assert(cond: boolean, name: string) {
   }
 }
 
+const RUN_IP = `10.2.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250) + 1}`;
+
 function client() {
   let cookie = "";
   return {
@@ -24,6 +26,9 @@ function client() {
       const res = await fetch(`${BASE}${path}`, {
         method: opts?.method ?? "GET",
         headers: {
+          // Fresh simulated client IP per run (Vercel overwrites this header
+          // in production — test scaffolding only).
+          "x-forwarded-for": RUN_IP,
           ...(opts?.body !== undefined ? { "Content-Type": "application/json" } : {}),
           ...(cookie ? { cookie } : {}),
         },
@@ -88,7 +93,7 @@ async function main() {
   {
     const bad = await admin.call("/api/auth/login", { method: "POST", body: { email: "admin@whitelineissig.me", password: "wrong" } });
     assert(bad.status === 401, "wrong password → 401");
-    const ok = await admin.call("/api/auth/login", { method: "POST", body: { email: "admin@whitelineissig.me", password: process.env.ADMIN_PASSWORD ?? "WhiteLinks2026!" } });
+    const ok = await admin.call("/api/auth/login", { method: "POST", body: { email: "admin@whitelineissig.me", password: process.env.ADMIN_PASSWORD ?? "" } });
     assert(ok.status === 200, "admin login works");
     const integ = await admin.call("/api/admin/integrations");
     const wa = (integ.data.integrations as { id: string; status: string }[] | undefined)?.find((i) => i.id === "whatsapp");
@@ -165,6 +170,109 @@ async function main() {
       body: { displayName: "X", phone: "abc", email: "not-an-email", password: "123", agreeRules: false, agreeMessages: false },
     });
     assert(bad.status === 400, "invalid registration payload → 400");
+  }
+
+  console.log("— Account-takeover protection on registration —");
+  {
+    // Ensure an open round exists (same pattern as above)
+    let status = await anon.call("/api/rounds/current");
+    let round = status.data.round as { status: string; id: string } | null;
+    if (!round || !(round.status === "registration_open" || round.status === "active" || round.status === "guessing_open")) {
+      const nowMs = Date.now();
+      const created = await admin.call("/api/admin/rounds", {
+        method: "POST",
+        body: {
+          name: `Takeover Test Round ${nowMs}`,
+          registrationStart: new Date(nowMs - 60 * 1000).toISOString(),
+          registrationEnd: new Date(nowMs + 48 * 3600 * 1000).toISOString(),
+          matchingMode: "OPEN",
+        },
+      });
+      const createdRound = (created.data as { round?: { id?: string } }).round;
+      if (createdRound?.id) {
+        await admin.call(`/api/admin/rounds/${createdRound.id}/action`, { method: "POST", body: { action: "open_registration" } });
+      }
+      status = await anon.call("/api/rounds/current");
+      round = status.data.round as { status: string; id: string } | null;
+    }
+
+    if (round && (round.status === "registration_open" || round.status === "active" || round.status === "guessing_open")) {
+      const victimEmail = `victim-${Date.now()}@test.wlc`;
+      const helper = client();
+      const first = await helper.call("/api/registrations", {
+        method: "POST",
+        body: {
+          displayName: "Victim Owner",
+          phone: `+21624559${String(Date.now()).slice(-3)}`,
+          email: victimEmail,
+          password: "OwnerPass2026!",
+          category: "A",
+          agreeRules: true,
+          agreeMessages: true,
+        },
+      });
+      if (first.status === 200) {
+        // Attacker knows only the email and tries to register over it with a new password
+        const attacker = client();
+        const attack = await attacker.call("/api/registrations", {
+          method: "POST",
+          body: {
+            displayName: "Attacker",
+            phone: `+21624560${String(Date.now()).slice(-3)}`,
+            email: victimEmail,
+            password: "HackedPass2026!",
+            category: "B",
+            agreeRules: true,
+            agreeMessages: true,
+          },
+        });
+        assert(attack.status === 409 && attack.data.error === "EMAIL_TAKEN", `wrong password on existing email → 409 EMAIL_TAKEN (${attack.status} ${attack.data.error})`);
+
+        // The attacker must NOT have been logged in as the victim
+        const me = await attacker.call("/api/auth/me");
+        assert(me.status === 401, "no session granted for wrong-password registration");
+
+        // Deterministic password-verified reuse: seed an account with NO
+        // registration in the current round (like a member from a previous
+        // round), then have them "re-register" with the correct password.
+        const { PrismaClient } = await import("@prisma/client");
+        const { hashPassword } = await import("../src/lib/phone");
+        const prisma = new PrismaClient();
+        const reuseEmail = `reuse-${Date.now()}@test.wlc`;
+        await prisma.user.create({
+          data: {
+            email: reuseEmail,
+            passwordHash: hashPassword("OwnerPass2026!"),
+            displayName: "Roundless Member",
+            phone: `+21624562${String(Date.now()).slice(-3)}`,
+            role: "MEMBER",
+            phoneVerified: false,
+          },
+        });
+        await prisma.$disconnect();
+
+        const owner = client();
+        const legit = await owner.call("/api/registrations", {
+          method: "POST",
+          body: {
+            displayName: "Roundless Member",
+            phone: `+21624563${String(Date.now()).slice(-3)}`,
+            email: reuseEmail,
+            password: "OwnerPass2026!",
+            category: "A",
+            agreeRules: true,
+            agreeMessages: true,
+          },
+        });
+        assert(legit.status === 200, `correct password re-registration accepted (${legit.status} ${legit.data.error})`);
+        const ownerMe = await owner.call("/api/auth/me");
+        assert(ownerMe.status === 200 && (ownerMe.data.user as { email?: string } | null)?.email === reuseEmail, "owner session valid after re-registration");
+      } else {
+        console.log("    (skipped — could not seed victim account)");
+      }
+    } else {
+      console.log("    (skipped — no open round available)");
+    }
   }
 
   console.log("— Reveal protection (acceptance #15/#16) —");
