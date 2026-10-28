@@ -18,14 +18,18 @@ export async function GET() {
     const revealed = round.status === "revealed" || round.status === "archived";
     const roundId = round.id;
 
-    const myOut = await db.assignment.findFirst({
-      where: { roundId: round.id, giverId: user.id, status: "ACTIVE" },
-      select: { recipientId: true },
-    });
-    const myIn = await db.assignment.findFirst({
-      where: { roundId: round.id, recipientId: user.id, status: "ACTIVE" },
-      select: { giverId: true },
-    });
+    // PERFORMANCE: both assignment lookups run concurrently (this endpoint is
+    // polled every few seconds by the message center).
+    const [myOut, myIn] = await Promise.all([
+      db.assignment.findFirst({
+        where: { roundId: round.id, giverId: user.id, status: "ACTIVE" },
+        select: { recipientId: true },
+      }),
+      db.assignment.findFirst({
+        where: { roundId: round.id, recipientId: user.id, status: "ACTIVE" },
+        select: { giverId: true },
+      }),
+    ]);
 
     async function loadThread(otherId: string | undefined | null) {
       if (!otherId) return [];
@@ -61,20 +65,23 @@ export async function GET() {
       });
     }
 
-    const friendThread = myOut ? await loadThread(myOut.recipientId) : [];
-    const admirerThread = myIn ? await loadThread(myIn.giverId) : [];
-
-    // Mark incoming allowed messages as read
-    await db.message.updateMany({
-      where: {
-        roundId,
-        recipientId: user.id,
-        senderId: { not: user.id },
-        modStatus: "ALLOWED",
-        readAt: null,
-      },
-      data: { readAt: new Date() },
-    });
+    // PERFORMANCE: both threads + the mark-read update run concurrently.
+    // (Marking read in parallel is safe: a message returned with readAt=null
+    // simply shows its unread badge until the next poll, as before.)
+    const [friendThread, admirerThread] = await Promise.all([
+      myOut ? loadThread(myOut.recipientId) : Promise.resolve([]),
+      myIn ? loadThread(myIn.giverId) : Promise.resolve([]),
+      db.message.updateMany({
+        where: {
+          roundId,
+          recipientId: user.id,
+          senderId: { not: user.id },
+          modStatus: "ALLOWED",
+          readAt: null,
+        },
+        data: { readAt: new Date() },
+      }),
+    ]);
 
     return Response.json({
       round: { id: round.id, name: round.name, status: round.status, messageMaxLength: round.messageMaxLength },
