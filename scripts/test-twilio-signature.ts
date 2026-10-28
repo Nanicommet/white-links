@@ -24,7 +24,7 @@ const params: Record<string, string> = {
   MessagingServiceSid: "MGaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   NumSegments: "1",
   MessageSid: "SMaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-  AccountSid: "ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+  AccountSid: "ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", // placeholder — never a real SID
   From: "whatsapp:+21697690531",
   ApiVersion: "2010-04-01",
 };

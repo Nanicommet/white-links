@@ -264,6 +264,18 @@ function RoundsTab() {
     mutation.mutate({ path: `/api/admin/rounds/${id}/action`, body: { action, confirm: !!confirmMsg } });
   };
 
+  // EMERGENCY override — reveals before the deadline; requires a written
+  // reason (kept in the audit log) on top of the confirmation.
+  const forceReveal = (id: string) => {
+    const reason = window.prompt(t("admin.forceRevealPrompt"));
+    if (!reason || reason.trim().length < 5) return;
+    if (!window.confirm(t("admin.forceRevealConfirm"))) return;
+    mutation.mutate({
+      path: `/api/admin/rounds/${id}/action`,
+      body: { action: "force_reveal", confirm: true, reason: reason.trim() },
+    });
+  };
+
   return (
     <div className="mt-4 space-y-4">
       {err && <ErrorBar msg={err} />}
@@ -319,7 +331,7 @@ function RoundsTab() {
             )}
             {r.status === "active" && (
               <>
-                <Button size="sm" variant="outline" onClick={() => roundAction(r.id, "open_guessing")} className="rounded-full">
+                <Button size="sm" variant="outline" onClick={() => roundAction(r.id, "open_guessing", t("admin.openGuessingConfirm"))} className="rounded-full">
                   <Eye className="h-3.5 w-3.5" /> {t("admin.openGuessing")}
                 </Button>
                 <Button size="sm" variant="outline" onClick={() => roundAction(r.id, "advance_registration")} className="rounded-full">
@@ -327,9 +339,14 @@ function RoundsTab() {
                 </Button>
               </>
             )}
-            {(r.status === "guessing_open" || r.status === "active") && (
+            {r.status === "guessing_open" && (
               <Button size="sm" onClick={() => roundAction(r.id, "reveal", t("admin.revealConfirm"))} className="rounded-full bg-black hover:bg-black/85">
                 <Sparkles className="h-3.5 w-3.5" /> {t("admin.reveal")}
+              </Button>
+            )}
+            {(r.status === "active" || r.status === "guessing_open") && (
+              <Button size="sm" variant="ghost" onClick={() => forceReveal(r.id)} className="rounded-full text-red-600 hover:bg-red-50">
+                <Sparkles className="h-3.5 w-3.5" /> {t("admin.forceReveal")}
               </Button>
             )}
             {r.status === "revealed" && (
@@ -662,7 +679,8 @@ function ModerationTab() {
     <div className="mt-4 space-y-5">
       {err && <ErrorBar msg={err} />}
       <section>
-        <h3 className="mb-3 flex items-center gap-2 font-display text-2xl"><Hourglass className="h-5 w-5" /> {t("admin.pendingModeration")} ({d.reviewMessages.length})</h3>
+        <h3 className="mb-1 flex items-center gap-2 font-display text-2xl"><Hourglass className="h-5 w-5" /> {t("admin.pendingModeration")} ({d.reviewMessages.length})</h3>
+        <p className="mb-3 text-xs text-black/45">{t("admin.autoModerationNote")}</p>
         {d.reviewMessages.length === 0 ? (
           <p className="wl-card p-6 text-center text-sm text-black/40">File vide ✨</p>
         ) : (

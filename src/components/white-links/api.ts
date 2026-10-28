@@ -119,10 +119,14 @@ export interface InboxData {
     admirer: { exists: boolean; messages: InboxMessage[] };
   } | null;
   canSend: boolean;
+  /** Machine-readable reason when canSend is false: REVEALED | ROUND_NOT_ACTIVE | NOT_REGISTERED | NOT_APPROVED | NO_ASSIGNMENT */
+  sendBlockReason?: string | null;
 }
 
 export interface GuessData {
   open: boolean;
+  /** True while the guessing window is open — the guess can be changed until the deadline. */
+  canChange?: boolean;
   reason?: string;
   deadline?: string | null;
   round?: { id: string; name: string; status: string };

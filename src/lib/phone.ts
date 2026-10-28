@@ -3,11 +3,19 @@ import crypto from "crypto";
 // ── Phone normalization (Tunisia-first) ──────────────────────────
 // Accepts 8-digit local numbers, 00216/+216 prefixed, or generic
 // international numbers. Returns E.164-ish "+<digits>" or null.
+// Robust against common user pastes: "+216 24 555 123", "00216...",
+// "0 24 555 123" (leading zero), and doubled prefixes "+216216…".
 
 export function normalizePhone(raw: string): string | null {
   if (!raw) return null;
   let s = raw.replace(/[\s\-().]/g, "");
   if (s.startsWith("00")) s = "+" + s.slice(2);
+  // Leading-zero local paste: "024555123" → "24555123"
+  if (/^0\d{8}$/.test(s)) s = s.slice(1);
+  // Doubled-prefix pastes (user typed +216 into the +216-prefixed field):
+  // "+216216245551 23" → "+21624555123", "21621624555123" → "21624555123"
+  while (/^\+216216/.test(s)) s = "+" + s.slice(4);
+  while (/^216216\d{8}$/.test(s)) s = s.slice(3);
   if (/^216\d{8}$/.test(s)) s = "+" + s;
   else if (/^\d{8}$/.test(s)) s = "+216" + s;
   else if (/^\d{10,15}$/.test(s) && !s.startsWith("+")) s = "+" + s;

@@ -232,7 +232,7 @@ async function main() {
   const earlyGuess = await yas.call("/api/me/guess", { method: "POST", body: { guessedId: recipientId } });
   assert(earlyGuess.status === 403, "guess rejected while round merely active (before guessing window)");
 
-  await admin.call(`/api/admin/rounds/${roundId}/action`, { method: "POST", body: { action: "open_guessing" } });
+  await admin.call(`/api/admin/rounds/${roundId}/action`, { method: "POST", body: { action: "open_guessing", confirm: true } });
   const guessOk = await yas.call("/api/me/guess", { method: "POST", body: { guessedId: recipientId } });
   assert(guessOk.status === 200, "guess submitted during guessing window");
   const guessSelf = await yas.call("/api/me/guess", { method: "POST", body: { guessedId: sender!.id } });

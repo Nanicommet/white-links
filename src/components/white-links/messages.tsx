@@ -28,8 +28,29 @@ export function MessagesPage() {
   const inboxQuery = useQuery({
     queryKey: ["inbox"],
     queryFn: () => api<InboxData>("/api/me/inbox"),
-    refetchInterval: 5000, // near-realtime inbox
+    refetchInterval: () => {
+      // PERFORMANCE: poll only while the tab is visible — a hidden tab no
+      // longer generates requests (or DB load) every few seconds.
+      return typeof document !== "undefined" && document.hidden ? false : 6000;
+    },
   });
+
+  // Mark messages as read ONLY when the message center is open and visible
+  // (fix: the old polling GET wrote to the DB every 5 s per user and cleared
+  // unread badges before the user actually saw the messages).
+  const totalUnread =
+    (inboxQuery.data?.threads?.friend.messages ?? []).filter((m) => !m.mine && !m.readAt).length +
+    (inboxQuery.data?.threads?.admirer.messages ?? []).filter((m) => !m.mine && !m.readAt).length;
+  useEffect(() => {
+    if (totalUnread === 0) return;
+    if (typeof document !== "undefined" && document.hidden) return;
+    const timer = setTimeout(() => {
+      api("/api/me/inbox", { method: "POST" })
+        .then(() => qc.invalidateQueries({ queryKey: ["inbox"] }))
+        .catch(() => {});
+    }, 1200); // small delay: the user must actually see the thread
+    return () => clearTimeout(timer);
+  }, [totalUnread, qc]);
 
   const sendMutation = useMutation({
     mutationFn: (payload: { destination: string; body: string }) =>
@@ -45,11 +66,22 @@ export function MessagesPage() {
       if (e instanceof ApiError) {
         const map: Record<string, string> = {
           RATE_LIMITED: t("msg.rateLimited"),
-          REJECTED_BY_MODERATION: e.payload.message ? String(e.payload.message) : t("common.error"),
           NOT_ELIGIBLE: t("dash.notRegistered"),
-          NO_ASSIGNMENT: t("common.error"),
+          NO_ASSIGNMENT: t("msg.block.NO_ASSIGNMENT"),
+          REJECTED_BY_MODERATION: t("common.error"),
+          RESTRICTED: t("msg.block.RESTRICTED"),
+          EMPTY: t("common.error"),
+          TOO_LONG: t("common.error"),
         };
-        setFeedback({ kind: "error", text: map[e.code] ?? `${t("common.error")} (${e.code})` });
+        // Prefer the server's human-safe French message when present.
+        const serverMessage =
+          e.code === "REJECTED_BY_MODERATION" && e.payload?.message
+            ? String(e.payload.message)
+            : undefined;
+        setFeedback({
+          kind: "error",
+          text: serverMessage ?? map[e.code] ?? `${t("common.error")} (${e.code})`,
+        });
       } else {
         setFeedback({ kind: "error", text: t("common.error") });
       }
@@ -240,7 +272,11 @@ export function MessagesPage() {
           ) : (
             <p className="flex items-center justify-center gap-2 py-3 text-center text-xs text-black/50">
               <Timer className="h-3.5 w-3.5" />
-              {data.revealed ? t("status.revealed") : t("dash.noRound")}
+              {data.sendBlockReason
+                ? t(`msg.block.${data.sendBlockReason}` as never)
+                : data.revealed
+                  ? t("status.revealed")
+                  : t("dash.noRound")}
             </p>
           )}
         </div>

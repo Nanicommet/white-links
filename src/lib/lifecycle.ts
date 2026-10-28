@@ -64,6 +64,38 @@ async function runTick(): Promise<{ transitions: string[]; reminders: number }> 
   if (!settings.autoTransitions) return { transitions, reminders };
   const now = new Date();
 
+  // 0. Auto-open registration on drafts whose start time has arrived
+  // (covers "advance registration" rounds + admin-created scheduled rounds)
+  const dueDrafts = await db.round.findMany({
+    where: { status: "draft", registrationStart: { lte: now }, registrationEnd: { gt: now } },
+  });
+  for (const round of dueDrafts) {
+    // Atomic claim — safe when several serverless instances tick concurrently
+    const claimed = await db.round.updateMany({
+      where: { id: round.id, status: "draft" },
+      data: { status: "registration_open" },
+    });
+    if (claimed.count !== 1) continue; // another instance won the race
+    transitions.push(`round ${round.id}: draft → registration_open`);
+    await audit(null, "system", "ROUND_AUTO_OPEN", round.id, { name: round.name });
+    const regs = await db.registration.findMany({
+      where: { roundId: round.id, status: "ACTIVE" },
+      select: { userId: true },
+    });
+    await Promise.all(
+      regs.map((r) =>
+        notify({
+          userId: r.userId,
+          roundId: round.id,
+          type: "NEXT_ROUND",
+          title: "Les inscriptions sont ouvertes ✍️",
+          body: `Inscris-toi à « ${round.name} » avant le ${round.registrationEnd.toLocaleString("fr-FR")} !`,
+          dedupeKey: `reg-open:${round.id}:${r.userId}`,
+        })
+      )
+    );
+  }
+
   // 1. Auto-close registration at deadline (acceptance test #2)
   const openRounds = await db.round.findMany({ where: { status: "registration_open" } });
   for (const round of openRounds) {
@@ -74,22 +106,31 @@ async function runTick(): Promise<{ transitions: string[]; reminders: number }> 
         where: { roundId: round.id, status: "ACTIVE" },
         select: { userId: true },
       });
-      for (const r of regs) {
-        const created = await notify({
-          userId: r.userId,
-          roundId: round.id,
-          type: "REGISTRATION_CLOSING",
-          title: "Les inscriptions ferment bientôt ⏳",
-          body: `La manche « ${round.name} » ferme ses inscriptions le ${round.registrationEnd.toLocaleString("fr-FR")}. Invite tes camarades !`,
-          dedupeKey: `closing-reminder:${round.id}:${r.userId}`,
-        });
-        if (created) reminders++;
-      }
+      await Promise.all(
+        regs.map((r) =>
+          notify({
+            userId: r.userId,
+            roundId: round.id,
+            type: "REGISTRATION_CLOSING",
+            title: "Les inscriptions ferment bientôt ⏳",
+            body: `La manche « ${round.name} » ferme ses inscriptions le ${round.registrationEnd.toLocaleString("fr-FR")}. Invite tes camarades !`,
+            dedupeKey: `closing-reminder:${round.id}:${r.userId}`,
+          })
+        )
+      ).then((results) => {
+        reminders += results.filter(Boolean).length;
+      });
     }
     if (now >= round.registrationEnd) {
-      await db.round.update({ where: { id: round.id }, data: { status: "registration_closed" } });
-      transitions.push(`round ${round.id}: registration_open → registration_closed`);
-      await audit(null, "system", "ROUND_AUTO_CLOSE", round.id, { name: round.name });
+      // Atomic claim — safe when several serverless instances tick concurrently
+      const claimed = await db.round.updateMany({
+        where: { id: round.id, status: "registration_open" },
+        data: { status: "registration_closed" },
+      });
+      if (claimed.count === 1) {
+        transitions.push(`round ${round.id}: registration_open → registration_closed`);
+        await audit(null, "system", "ROUND_AUTO_CLOSE", round.id, { name: round.name });
+      }
     }
   }
 
@@ -99,23 +140,30 @@ async function runTick(): Promise<{ transitions: string[]; reminders: number }> 
   const activeRounds = await db.round.findMany({ where: { status: "active" } });
   for (const round of activeRounds) {
     if (round.guessingStart && now >= round.guessingStart && round.guessingStart < round.gameEnd!) {
-      await db.round.update({ where: { id: round.id }, data: { status: "guessing_open" } });
+      // Atomic claim — safe when several serverless instances tick concurrently
+      const claimed = await db.round.updateMany({
+        where: { id: round.id, status: "active" },
+        data: { status: "guessing_open" },
+      });
+      if (claimed.count !== 1) continue; // another instance won the race
       transitions.push(`round ${round.id}: active → guessing_open`);
       await audit(null, "system", "ROUND_AUTO_GUESSING", round.id, {});
       const regs = await db.registration.findMany({
         where: { roundId: round.id, status: "ACTIVE" },
         select: { userId: true },
       });
-      for (const r of regs) {
-        await notify({
-          userId: r.userId,
-          roundId: round.id,
-          type: "GUESSING_OPEN",
-          title: "Devinettes ouvertes 🔮",
-          body: "Qui prenait soin de toi en secret ? Soumets ton choix avant la révélation !",
-          dedupeKey: `guessing-open:${round.id}:${r.userId}`,
-        });
-      }
+      await Promise.all(
+        regs.map((r) =>
+          notify({
+            userId: r.userId,
+            roundId: round.id,
+            type: "GUESSING_OPEN",
+            title: "Devinettes ouvertes 🔮",
+            body: "Qui prenait soin de toi en secret ? Soumets ton choix avant la révélation !",
+            dedupeKey: `guessing-open:${round.id}:${r.userId}`,
+          })
+        )
+      );
     }
   }
 
@@ -139,7 +187,16 @@ export async function transitionRound(
   if (!canTransition(round.status as RoundStatus, to)) {
     return { ok: false, error: `INVALID_TRANSITION:${round.status}→${to}` };
   }
-  await db.round.update({ where: { id: roundId }, data: { status: to } });
+  // Concurrency-safe claim: the conditional update only succeeds when the
+  // status is still the one we validated. Two simultaneous callers cannot
+  // both apply the same transition (exactly one gets count === 1).
+  const claimed = await db.round.updateMany({
+    where: { id: roundId, status: round.status },
+    data: { status: to },
+  });
+  if (claimed.count !== 1) {
+    return { ok: false, error: "CONCURRENT_MODIFICATION" };
+  }
   await audit(actorId, actorName, `ROUND_TRANSITION:${round.status}→${to}`, roundId, {
     name: round.name,
   });
@@ -255,15 +312,29 @@ export async function finalizeMatching(
   if (round.status !== "registration_closed" && round.status !== "matching_pending") {
     return { ok: false, error: `INVALID_ROUND_STATUS:${round.status}` };
   }
-  await db.round.update({ where: { id: roundId }, data: { status: "matching_pending" } });
 
-  // Idempotency: if ACTIVE assignments already exist, do not recreate
-  const existing = await db.assignment.findMany({
-    where: { roundId, status: "ACTIVE" },
-  });
-  if (existing.length > 0) {
+  // Concurrency-safe claim: exactly ONE caller wins the
+  // registration_closed → matching_pending transition. A second simultaneous
+  // caller gets MATCHING_IN_PROGRESS instead of racing on assignments.
+  if (round.status === "registration_closed") {
+    const claimed = await db.round.updateMany({
+      where: { id: roundId, status: "registration_closed" },
+      data: { status: "matching_pending" },
+    });
+    if (claimed.count !== 1) return { ok: false, error: "MATCHING_IN_PROGRESS" };
+  } else {
+    // Already matching_pending: either a finalization is running right now,
+    // or a previous one crashed midway. Only safe to continue when ACTIVE
+    // assignments already exist (idempotent completion).
+    const existing = await db.assignment.findMany({
+      where: { roundId, status: "ACTIVE" },
+    });
+    if (existing.length === 0) return { ok: false, error: "MATCHING_IN_PROGRESS" };
     const count = existing.length;
-    await db.round.update({ where: { id: roundId }, data: { status: "active" } });
+    await db.round.updateMany({
+      where: { id: roundId, status: "matching_pending" },
+      data: { status: "active" },
+    });
     return { ok: true, assigned: count };
   }
 
@@ -292,7 +363,10 @@ export async function finalizeMatching(
     settings.minParticipants
   );
   if (!result.ok) {
-    await db.round.update({ where: { id: roundId }, data: { status: "registration_closed" } });
+    await db.round.updateMany({
+      where: { id: roundId, status: "matching_pending" },
+      data: { status: "registration_closed" },
+    });
     await audit(actorId, actorName, "MATCHING_FAILED", roundId, { errors: result.errors });
     return { ok: false, error: result.errors.join(" | ") };
   }
@@ -301,7 +375,10 @@ export async function finalizeMatching(
     mode: round.matchingMode === "CROSS_CATEGORY" ? "CROSS_CATEGORY" : "OPEN",
   });
   if (!recheck.valid) {
-    await db.round.update({ where: { id: roundId }, data: { status: "registration_closed" } });
+    await db.round.updateMany({
+      where: { id: roundId, status: "matching_pending" },
+      data: { status: "registration_closed" },
+    });
     return { ok: false, error: "INVARIANT_VIOLATION:" + recheck.errors.join(",") };
   }
 
@@ -348,25 +425,28 @@ export async function finalizeMatching(
     honored: result.stats.honoredPreferences,
   });
 
-  // Notify participants only after successful finalization (idempotent)
-  for (const pair of result.pairs) {
-    await notify({
-      userId: pair.giverId,
-      roundId,
-      type: "ASSIGNMENT",
-      title: "Ton ami secret t'attend 💌",
-      body: `La manche « ${round.name} » démarre ! Tu prends soin de ${namesById.get(pair.recipientId)} en secret. Rendez-vous dans ton espace.`,
-      dedupeKey: `assignment:${roundId}:${pair.giverId}`,
-    });
-    await notify({
-      userId: pair.recipientId,
-      roundId,
-      type: "GAME_LAUNCH",
-      title: "Le jeu commence ✨",
-      body: `Quelqu'un prend soin de toi en secret pendant « ${round.name} ». Reponds-lui depuis ton espace !`,
-      dedupeKey: `launch:${roundId}:${pair.recipientId}`,
-    });
-  }
+  // Notify participants only after successful finalization (idempotent).
+  // Concurrency: notifications are independent — fire them in parallel.
+  await Promise.all(
+    result.pairs.flatMap((pair) => [
+      notify({
+        userId: pair.giverId,
+        roundId,
+        type: "ASSIGNMENT",
+        title: "Ton ami secret t'attend 💌",
+        body: `La manche « ${round.name} » démarre ! Tu prends soin de ${namesById.get(pair.recipientId)} en secret. Rendez-vous dans ton espace.`,
+        dedupeKey: `assignment:${roundId}:${pair.giverId}`,
+      }),
+      notify({
+        userId: pair.recipientId,
+        roundId,
+        type: "GAME_LAUNCH",
+        title: "Le jeu commence ✨",
+        body: `Quelqu'un prend soin de toi en secret pendant « ${round.name} ». Reponds-lui depuis ton espace !`,
+        dedupeKey: `launch:${roundId}:${pair.recipientId}`,
+      }),
+    ])
+  );
 
   return { ok: true, assigned: result.pairs.length };
 }
@@ -393,14 +473,24 @@ export async function revealRound(
 ): Promise<{ ok: boolean; error?: string }> {
   const round = await db.round.findUnique({ where: { id: roundId } });
   if (!round) return { ok: false, error: "ROUND_NOT_FOUND" };
-  if (round.status !== "guessing_open" && round.status !== "active") {
+  // GAME-FLOW GUARD: reveal is only legitimate once the guessing window has
+  // fully closed. Revealing during "active" (before guesses were even
+  // possible) or before the deadline would cut the game short.
+  if (round.status !== "guessing_open") {
     return { ok: false, error: `INVALID_ROUND_STATUS:${round.status}` };
   }
+  if (!round.guessingDeadline) {
+    return { ok: false, error: "NO_GUESSING_DEADLINE" };
+  }
   const now = new Date();
-  if (round.guessingDeadline && now < round.guessingDeadline) {
+  if (now < round.guessingDeadline) {
     return { ok: false, error: "GUESSING_STILL_OPEN" };
   }
-  await db.round.update({ where: { id: roundId }, data: { status: "revealed" } });
+  const claimed = await db.round.updateMany({
+    where: { id: roundId, status: "guessing_open" },
+    data: { status: "revealed" },
+  });
+  if (claimed.count !== 1) return { ok: false, error: "CONCURRENT_MODIFICATION" };
   await audit(actorId, actorName, "REVEAL_TRIGGERED", roundId, { name: round.name });
 
   const regs = await db.registration.findMany({
@@ -409,26 +499,97 @@ export async function revealRound(
   });
   const { winners } = await winnersOfRound(roundId);
   const winnerIds = new Set(winners.map((w) => w.winnerId));
-  for (const r of regs) {
-    await notify({
-      userId: r.userId,
-      roundId,
-      type: "REVEAL",
-      title: "La révélation est là 🎉",
-      body: "Découvre qui prenait soin de toi en secret… et qui tu as fait sourire !",
-      dedupeKey: `reveal:${roundId}:${r.userId}`,
-    });
-    if (winnerIds.has(r.userId)) {
-      await notify({
-        userId: r.userId,
-        roundId,
-        type: "NEXT_ROUND",
-        title: "Récompense de devin 🏆",
-        body: "Tu as deviné juste ! Exprime tes préférences pour la prochaine manche depuis ton espace.",
-        dedupeKey: `reward:${roundId}:${r.userId}`,
-      });
-    }
+  await Promise.all(
+    regs.flatMap((r) => {
+      const items = [
+        notify({
+          userId: r.userId,
+          roundId,
+          type: "REVEAL",
+          title: "La révélation est là 🎉",
+          body: "Découvre qui prenait soin de toi en secret… et qui tu as fait sourire !",
+          dedupeKey: `reveal:${roundId}:${r.userId}`,
+        }),
+      ];
+      if (winnerIds.has(r.userId)) {
+        items.push(
+          notify({
+            userId: r.userId,
+            roundId,
+            type: "NEXT_ROUND",
+            title: "Récompense de devin 🏆",
+            body: "Tu as deviné juste ! Exprime tes préférences pour la prochaine manche depuis ton espace.",
+            dedupeKey: `reward:${roundId}:${r.userId}`,
+          })
+        );
+      }
+      return items;
+    })
+  );
+  return { ok: true };
+}
+
+/**
+ * EMERGENCY override — reveal before the guessing deadline (e.g. round cut
+ * short by a club decision). Never called by the normal UI flow: requires an
+ * explicit non-empty reason, which is written to the audit log.
+ */
+export async function forceRevealRound(
+  roundId: string,
+  actorId: string | null,
+  actorName: string,
+  reason: string
+): Promise<{ ok: boolean; error?: string }> {
+  const cleanReason = reason.trim();
+  if (cleanReason.length < 5) return { ok: false, error: "REASON_REQUIRED" };
+  const round = await db.round.findUnique({ where: { id: roundId } });
+  if (!round) return { ok: false, error: "ROUND_NOT_FOUND" };
+  if (round.status !== "guessing_open" && round.status !== "active") {
+    return { ok: false, error: `INVALID_ROUND_STATUS:${round.status}` };
   }
+  const claimed = await db.round.updateMany({
+    where: { id: roundId, status: round.status },
+    data: { status: "revealed" },
+  });
+  if (claimed.count !== 1) return { ok: false, error: "CONCURRENT_MODIFICATION" };
+  await audit(actorId, actorName, "REVEAL_FORCED", roundId, {
+    name: round.name,
+    previousStatus: round.status,
+    reason: cleanReason.slice(0, 500),
+  });
+  const regs = await db.registration.findMany({
+    where: { roundId, status: "ACTIVE" },
+    select: { userId: true },
+  });
+  const { winners } = await winnersOfRound(roundId);
+  const winnerIds = new Set(winners.map((w) => w.winnerId));
+  await Promise.all(
+    regs.flatMap((r) => {
+      const items = [
+        notify({
+          userId: r.userId,
+          roundId,
+          type: "REVEAL",
+          title: "La révélation est là 🎉",
+          body: "La manche a été clôturée par le club. Découvre qui prenait soin de toi en secret !",
+          dedupeKey: `reveal:${roundId}:${r.userId}`,
+        }),
+      ];
+      if (winnerIds.has(r.userId)) {
+        items.push(
+          notify({
+            userId: r.userId,
+            roundId,
+            type: "NEXT_ROUND",
+            title: "Récompense de devin 🏆",
+            body: "Tu as deviné juste ! Exprime tes préférences pour la prochaine manche depuis ton espace.",
+            dedupeKey: `reward:${roundId}:${r.userId}`,
+          })
+        );
+      }
+      return items;
+    })
+  );
   return { ok: true };
 }
 
@@ -452,10 +613,15 @@ export async function enableAdvanceRegistration(
     Math.max(Date.now(), round.gameEnd.getTime() - 48 * 3600 * 1000)
   );
   const regEnd = new Date(regStart.getTime() + settings.registrationHours * 3600 * 1000);
+  // FIX: if the registration window already started (final 48h of the round),
+  // the next round opens for registration IMMEDIATELY — the old code left it
+  // in "draft", which users cannot join (registration only accepts
+  // "registration_open" rounds) until an admin manually opened it.
+  const opensNow = regStart.getTime() <= Date.now();
   const next = await db.round.create({
     data: {
       name: `Manche après ${round.name}`,
-      status: "draft",
+      status: opensNow ? "registration_open" : "draft",
       registrationStart: regStart,
       registrationEnd: regEnd,
       matchingMode: round.matchingMode,
@@ -469,21 +635,26 @@ export async function enableAdvanceRegistration(
     from: currentRoundId,
     regStart: regStart.toISOString(),
     regEnd: regEnd.toISOString(),
+    opensNow,
   });
   // Notify participants of upcoming registration
   const regs = await db.registration.findMany({
     where: { roundId: currentRoundId, status: "ACTIVE" },
     select: { userId: true },
   });
-  for (const r of regs) {
-    await notify({
-      userId: r.userId,
-      roundId: next.id,
-      type: "NEXT_ROUND",
-      title: "La prochaine manche arrive 🔜",
-      body: `Les inscriptions pour « ${next.name} » ouvrent bientôt. Prépare tes messages !`,
-      dedupeKey: `next-round-announce:${next.id}:${r.userId}`,
-    });
-  }
+  await Promise.all(
+    regs.map((r) =>
+      notify({
+        userId: r.userId,
+        roundId: next.id,
+        type: "NEXT_ROUND",
+        title: opensNow ? "Les inscriptions sont ouvertes ✍️" : "La prochaine manche arrive 🔜",
+        body: opensNow
+          ? `Inscris-toi dès maintenant à « ${next.name} » depuis ton espace !`
+          : `Les inscriptions pour « ${next.name} » ouvrent le ${regStart.toLocaleString("fr-FR")}. Prépare tes messages !`,
+        dedupeKey: `next-round-announce:${next.id}:${r.userId}`,
+      })
+    )
+  );
   return { ok: true, roundId: next.id };
 }

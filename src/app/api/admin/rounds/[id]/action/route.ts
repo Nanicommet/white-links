@@ -5,6 +5,7 @@ import {
   transitionRound,
   finalizeMatching,
   revealRound,
+  forceRevealRound,
   previewMatching,
   matchingDiagnostics,
   enableAdvanceRegistration,
@@ -22,7 +23,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   try {
     const admin = await requireAdmin();
     const { id } = await params;
-    const { action, confirm } = (await req.json()) as { action?: string; confirm?: boolean };
+    const { action, confirm, reason } = (await req.json()) as {
+      action?: string;
+      confirm?: boolean;
+      reason?: string;
+    };
     if (!action) return jsonError("MISSING_ACTION", 400);
 
     switch (action) {
@@ -56,6 +61,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         return Response.json(diag);
       }
       case "open_guessing": {
+        // GAME-FLOW GUARD: opening guessing early shortens the game — it must
+        // be an explicit, confirmed decision (the UI shows what will happen).
+        if (!confirm) return jsonError("CONFIRMATION_REQUIRED", 400);
         const round = await db.round.findUnique({ where: { id } });
         if (!round) return jsonError("ROUND_NOT_FOUND", 404);
         // Opening guessing fixes the window start at "now" so deadline
@@ -69,12 +77,23 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
             guessingDeadline: round.guessingDeadline ?? round.gameEnd ?? new Date(Date.now() + 24 * 3600 * 1000),
           },
         });
-        await audit(admin.id, admin.displayName, "GUESSING_WINDOW_OPENED", id, null);
+        await audit(admin.id, admin.displayName, "GUESSING_WINDOW_OPENED", id, {
+          scheduledStart: round.guessingStart?.toISOString() ?? null,
+          openedEarly: !!(round.guessingStart && new Date() < round.guessingStart),
+        });
         return Response.json({ ok: true });
       }
       case "reveal": {
         if (!confirm) return jsonError("CONFIRMATION_REQUIRED", 400);
         const res = await revealRound(id, admin.id, admin.displayName);
+        if (!res.ok) return jsonError(res.error ?? "REVEAL_FAILED", 400);
+        return Response.json({ ok: true });
+      }
+      case "force_reveal": {
+        // EMERGENCY override: reveals before the deadline. Requires explicit
+        // confirmation AND a written reason (stored in the audit log).
+        if (!confirm) return jsonError("CONFIRMATION_REQUIRED", 400);
+        const res = await forceRevealRound(id, admin.id, admin.displayName, reason ?? "");
         if (!res.ok) return jsonError(res.error ?? "REVEAL_FAILED", 400);
         return Response.json({ ok: true });
       }

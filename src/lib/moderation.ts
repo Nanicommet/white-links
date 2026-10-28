@@ -228,9 +228,12 @@ export async function moderateMessage(
       confidence: typeof parsed.confidence === "number" ? parsed.confidence : 0.7,
       source: "AI",
     };
-  } catch {
+  } catch (err) {
     // Provider missing or failed → fail open: deliver the message rather
     // than parking it in a human queue (club policy: no human approval).
+    // OPS: always log the failure so outages are visible in Vercel logs —
+    // the admin console also shows "FILTERS_ONLY" mode for moderation.
+    console.warn("[moderation] AI layer unavailable — delivering on filters only:", err instanceof Error ? err.message : err);
     return {
       decision: "allow",
       reasonCode: "OK",

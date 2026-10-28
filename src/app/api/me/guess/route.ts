@@ -46,6 +46,7 @@ export async function GET() {
 
     return Response.json({
       open: isOpen,
+      canChange: isOpen, // guess may be updated until the deadline (by design)
       deadline: round.guessingDeadline,
       round: { id: round.id, name: round.name, status: round.status },
       participants: participants.map((p) => ({
@@ -61,8 +62,10 @@ export async function GET() {
   }
 }
 
-// POST — submit/update the guess. Only latest guess counts; changes are
-// allowed only while the guessing window is open (server-validated).
+// POST — submit/update the guess. PRODUCT RULE: only the latest guess
+// counts; the guess can be changed freely until the deadline (server-
+// validated). The response says canChange (NOT "locked") so the UI never
+// claims the guess is immutable when it is not.
 export async function POST(req: Request) {
   try {
     const user = await requireUser();
@@ -103,7 +106,7 @@ export async function POST(req: Request) {
     if (existing) {
       await db.guess.update({
         where: { id: existing.id },
-        data: { guessedId, updatedAt: now },
+        data: { guessedId, updatedAt: now, locked: false },
       });
     } else {
       await db.guess.create({
@@ -111,7 +114,7 @@ export async function POST(req: Request) {
       });
     }
     await audit(user.id, user.displayName, "GUESS_SUBMITTED", round.id, null);
-    return Response.json({ ok: true, locked: true });
+    return Response.json({ ok: true, canChange: true, deadline: round.guessingDeadline });
   } catch (e) {
     if (e instanceof Error && e.message === "UNAUTHENTICATED") return jsonError("UNAUTHENTICATED", 401);
     return jsonError("SERVER_ERROR", 500);
