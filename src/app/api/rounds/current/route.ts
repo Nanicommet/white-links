@@ -17,20 +17,22 @@ export async function GET() {
     },
   });
 
-  const nextRound = round
-    ? await db.round.findFirst({
-        where: { status: "draft", registrationStart: { gt: new Date() } },
-        orderBy: { registrationStart: "asc" },
-        select: { id: true, name: true, registrationStart: true, registrationEnd: true },
-      })
-    : null;
-
-  // Last revealed round for "previous edition" mention
-  const lastRevealed = await db.round.findFirst({
-    where: { status: { in: ["revealed", "archived"] } },
-    orderBy: { updatedAt: "desc" },
-    select: { name: true, updatedAt: true },
-  });
+  // PERFORMANCE: independent lookups run concurrently on the public landing
+  // page (fetched by every visitor).
+  const [nextRound, lastRevealed] = round
+    ? await Promise.all([
+        db.round.findFirst({
+          where: { status: "draft", registrationStart: { gt: new Date() } },
+          orderBy: { registrationStart: "asc" },
+          select: { id: true, name: true, registrationStart: true, registrationEnd: true },
+        }),
+        db.round.findFirst({
+          where: { status: { in: ["revealed", "archived"] } },
+          orderBy: { updatedAt: "desc" },
+          select: { name: true, updatedAt: true },
+        }),
+      ])
+    : [null, null];
 
   return Response.json({
     round: round
